@@ -74,6 +74,177 @@ async function iniciar() {
         return buffer;
     }
 
+    const montarComandoLerTagRRData = () => {
+
+        const enipHeader = Buffer.alloc(24);
+
+        // ++++++++++ ENIP: Cabeçalho ++++++++++++++++
+        // Comando Send RR Data(0x0070) para unconnected messages (2 bytes)
+        enipHeader.writeUInt16LE(0x006F, 0);
+
+        // Comprimento (0 bytes no momento, preencho depois que calcular o tamanho do CSD) (2 bytes)
+        enipHeader.writeUInt16LE(0x0000, 2);
+
+        // Session Handle (4 bytes)
+        enipHeader.writeUInt32LE(sessionHandleAtual, 4);
+
+        // Status (não utilizado no request) (4 bytes)
+        enipHeader.writeUInt32LE(0x00000000, 8);
+
+        // Sender Context (8 bytes)
+        enipHeader.writeUInt32LE(0x00000000, 12);
+        enipHeader.writeUInt32LE(0x00000000, 16);
+
+        // Options (inicialmente 0) (4 bytes)
+        enipHeader.writeUInt32LE(0x00000000, 20);
+
+        // No total deve fechar 24 bytes fixos do cabeçalho ENIP
+        // +++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+        // ++++++++++++++++ ENIP: Command Specific Data +++++++++++++++++
+
+        // O payload do Command Specific Data precisa seguir o seguinte pacote
+        // 1. Interface Handle (4 bytes)
+        // 2. Timeout (2 bytes)
+        // 3. Pacote Encapsulado padrão Commom Packet Format, contendo as informações do item solicitado 
+
+        // Preencher o payload CSD(Custom Service Data)
+        const enipCommandSpecificData = Buffer.alloc(256);
+
+        // Proximos 4 bytes é o Interface Handler, que segundo o manual deve ser 0 para CIP
+        enipCommandSpecificData.writeUInt32LE(0x00000000, 0);
+
+        // Proximos 2 bytes é o Timeout para expirar caso demorar receber uma confirmação de resposta
+        // Timeout de 12 segundos
+        enipCommandSpecificData.writeUInt16LE(10, 4);
+
+        // Escrever os itens do pacote Commom Packet Format, que segue a logica:
+        // 1. Item Count (2 bytes)
+        // 2. Pra cada novo item adicionado, adicionar o tipo ID do item(2 bytes) + length(2 bytes)
+
+        // Então, os próximos 2 bytes são o número de itens que eu vou enviar
+        enipCommandSpecificData.writeUInt16LE(0x0002, 6);
+
+        // +++ENIP: Command Specific Data: Itens Encapsulados ++
+
+        // Escrever o primeiro item nos proximos 4 bytes (2 bytes pro ID, 2 bytes pro length)
+
+        // O primeiro item é o Null Address Item onde requisições UCMM(Unconnected Message) devem ser informado
+        enipCommandSpecificData.writeUInt16LE(0x0000, 8);
+        // Tamanho de 2 bytes
+        enipCommandSpecificData.writeUInt16LE(0x0000, 10);
+
+        // O segundo item é o Unconnected Message 
+        enipCommandSpecificData.writeUInt16LE(0x00b2, 12);
+
+        //@@ Tamanho de 2 bytes do payload Unconnected Message. Preciso calcular mais pra frente o payload, no momento seto 0
+        enipCommandSpecificData.writeUInt16LE(0x0000, 14);
+        // +++++
+
+        // ++++++++++++++++ CIP:
+
+        // O Layer CIP é composto por:
+        // 1. Service: 1 byte
+        // 2. Request Path Size: 1 byte
+        // 3. Request Path: 4 bytes
+        const cip = Buffer.alloc(40);
+
+        // Service é 1 byte
+        cip.writeUInt8(0x52, 0); // Service: Unconnected Message 
+
+        // Request Path Size é 1 byte
+        cip.writeUInt8(0x02, 1); // Request Path Size: 2 bytes
+
+        // Request Path 
+        cip.writeUInt8(0x20, 2); // Tipo de segmento Class ID 
+        cip.writeUInt8(0x06, 3); // Valor do Class ID(Connection Manager)
+
+        cip.writeUInt8(0x24, 4); // Tipo de segmento Instance ID
+        cip.writeUint8(0x01, 5); // Valor do Instance ID(1)
+        // ++++++++++++++++
+
+        // ++++++++++++++ CIP Connection manager
+        // Contém os detalhes do comando que vai ser solicitado
+        const cipConnectionManager = Buffer.alloc(300);
+
+        // Primeiro 1 byte é o Priority/Time_tick (BYTE)
+        cipConnectionManager.writeUInt8(0x04, 0); // Prioridade 10
+
+        // Proximos 2 bytes é o Timeout Ticks (BYTE)
+        cipConnectionManager.writeUInt16LE(125, 1); // Tempo de resposta (0)
+
+        // Proximos 2 bytes é o tamanho em bytes do Embed Message Request (ajusta o tamanho depois)
+        cipConnectionManager.writeUInt16LE(0, 2);  // Tamanho será ajustado mais tarde
+
+        // ++++++ CIP Embed Request ++++++
+        // Informações do comando que vai ser enviado e do endereço local que deve ser obtido
+
+        // Proximos 1 Byte é o codigo do serviço
+        cipConnectionManager.writeUInt8(0x4c, 4); // Service: Ler Tag (0x4c)
+
+        // Proximo 1 byte é o tamanho do path size da tag solicitada(exemplo 4 words)
+        cipConnectionManager.writeUInt8(4, 5); // Path Size: 2 bytes
+
+        // Proximos 8 bytes é o Request Path que aponta pro endereço da tag solicitada
+
+        // Request_Path (Padded EPATH)
+        // Segmento ANSI Extended Symbol para a tag "TESTE2"
+        cipConnectionManager.writeUInt8(0x91, 6);  // ANSI Extended Symbol Segment (0x91)
+        cipConnectionManager.writeUInt8(Buffer.from('TESTE2').length, 7);  // Tamanho da tag "TESTE2"
+        Buffer.from('TESTE2').copy(cipConnectionManager, 8);  // Copiar nome da tag
+
+        // 5. Request_Data (Array of octets)
+        // Para leitura de tag, o campo Request_Data está vazio.
+        cipConnectionManager.writeUInt8(0x01, 8 + Buffer.from('TESTE2').length);  // Request Data (vazio)
+
+        // Verificamos se o tamanho do Message_Request_Size é ímpar e adicionamos um preenchimento se necessário
+        const totalBytesEmbed = cipConnectionManager.subarray(4, 8 + Buffer.from('TESTE2').length + 2).length;  // Calculamos o tamanho do Embed Request
+
+        if (totalBytesEmbed % 2 !== 0) {
+            cipConnectionManager.writeUInt8(0x00, 8 + Buffer.from('TESTE2').length + 2);  // Adicionamos o padding de 1 byte se o tamanho for ímpar
+        }
+
+        // Atualizar o tamanho correto do Message_Request_Size
+        cipConnectionManager.writeUInt16LE(totalBytesEmbed, 2);
+
+        let proximoOffset = totalBytesEmbed + 4;
+
+        // Proximo 1 byte
+        // 7. Route_Path_Size (USINT) 
+        cipConnectionManager.writeUInt8(1, proximoOffset);  // Route Path Size (1 palavra de 16 bits)
+
+        // Proximo 1 byte
+        // 8. Reserved (USINT)
+        cipConnectionManager.writeUInt8(0x00, proximoOffset + 1);  // Campo reservado (deve ser zero)
+
+        // Proximos 2 bytes
+        // 9. Route_Path (Padded EPATH)
+        // Route Path para o Backplane (Porta 1, Endereço 0)
+        cipConnectionManager.writeUInt8(0x01, proximoOffset + 2);  // Porta Backplane (1)
+        cipConnectionManager.writeUInt8(0x00, proximoOffset + 3);  // Endereço: 0
+
+        // Cortar o buffer ao tamanho correto com as informações precisas do layer do CIP Connection Manager
+        const bufferCortadoConnectionManagerPayload = cipConnectionManager.subarray(0, proximoOffset + 4);
+        const bufferCortadoCIPPayload = cip.subarray(0, 6);
+        // +++++
+        // ++++++++++++++++++++++++++++++
+
+        const bufferCortadoENIPCommandSpecificData = enipCommandSpecificData.subarray(0, 16);
+
+        // Atualizar o tamanho do pacote CIP Connection Manager no Command Specific Data do Layer EthernetIP
+        enipCommandSpecificData.writeUInt16LE(bufferCortadoConnectionManagerPayload.length + bufferCortadoCIPPayload.length, 14);
+
+        // Atualizar no cabeçalho EtherNetIP o tamanho do comando dos layers abaixo do EtherNet IP
+        enipHeader.writeUInt16LE(bufferCortadoENIPCommandSpecificData.length + bufferCortadoCIPPayload.length + bufferCortadoConnectionManagerPayload.length, 2);
+
+
+        // Juntar todos so buffers agora com os tamanhos corretos 
+        const bufferFinal = Buffer.concat([enipHeader, bufferCortadoENIPCommandSpecificData, bufferCortadoCIPPayload, bufferCortadoConnectionManagerPayload]);
+
+        return bufferFinal;
+    }
+
+
     const conectarSocket = () => {
         socketConexao.connect({ host: '192.168.3.120', port: 44818 }, () => {
             console.log(`Conexão TCP estabelecida`);
@@ -332,7 +503,7 @@ async function iniciar() {
             const carregarIdentidadeCIP = (buffCIP) => {
 
                 console.log(`Processando identidade CIP ${hexDeBuffer(buffCIP)}`);
-                
+
 
                 // Os próximos 2 bytes é a versão do protocolo de encapsulamento (geralmente sempre 1)
                 const versaoEncapsulamento = buffCIP.readUInt16LE(0);
@@ -426,7 +597,7 @@ async function iniciar() {
                         // Cortar o buffer onde inicio a identidade CIP
                         let identidadeCIPDados = carregarIdentidadeCIP(dados.subarray(offsetCSD + 6, offsetCSD + 6 + tamanhoPayloadBytes))
                         console.log(identidadeCIPDados);
-                        
+
                         // Mover o offset para a próxima identidade disponivel. Sendo o offset do payload do Identity CIP + 2 byte do tamanho do payload do Identity CIP) + 2 byte do tipo da identidade CIP);
                         offsetCSD += tamanhoPayloadBytes + 2 + 2
                         break;
@@ -444,7 +615,11 @@ async function iniciar() {
 
         console.log(`Solicitando lista de serviços disponíveis`);
 
-    
+        const teste = montarComandoLerTagRRData();
+
+        setInterval(() => {
+            socketConexao.write(teste);
+        }, 500);
     }
 
     conectarSocket();
