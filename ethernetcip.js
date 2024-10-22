@@ -1,5 +1,7 @@
 import net from "net";
 
+import { Comandos, EtherNetIPLayer } from "./EtherNetIP/Layers/EtherNetIP.js";
+
 async function iniciar() {
     console.log(`Iniciando...`);
 
@@ -74,7 +76,7 @@ async function iniciar() {
         return buffer;
     }
 
-    const montarComandoLerTagRRData = () => {
+    const montarComandoLerTagRRData = (tagNome) => {
 
         const enipHeader = Buffer.alloc(24);
 
@@ -183,31 +185,38 @@ async function iniciar() {
         cipConnectionManager.writeUInt8(0x4c, 4); // Service: Ler Tag (0x4c)
 
         // Proximo 1 byte é o tamanho do path size da tag solicitada(exemplo 4 words)
-        cipConnectionManager.writeUInt8(4, 5); // Path Size: 2 bytes
+        cipConnectionManager.writeUInt8(Math.ceil((2 + tagNome.length) / 2), 5); // Path Size: 2 bytes
 
-        // Proximos 8 bytes é o Request Path que aponta pro endereço da tag solicitada
+        // Proximos bytes é o Request Path que aponta pro endereço da tag solicitada
 
         // Request_Path (Padded EPATH)
         // Segmento ANSI Extended Symbol para a tag "TESTE2"
         cipConnectionManager.writeUInt8(0x91, 6);  // ANSI Extended Symbol Segment (0x91)
-        cipConnectionManager.writeUInt8(Buffer.from('TESTE2').length, 7);  // Tamanho da tag "TESTE2"
-        Buffer.from('TESTE2').copy(cipConnectionManager, 8);  // Copiar nome da tag
+        cipConnectionManager.writeUInt8(Buffer.from(tagNome).length, 7);  // Tamanho da tag "TESTE2"
+        Buffer.from(tagNome).copy(cipConnectionManager, 8);  // Copiar nome da tag
+
+        // O offset base depois de configurar os bytes anteriores
+        let offsetBase = 8;
+
+        // Se o tamanho do nome da tag for ímpar, adicionar um byte de preenchimento
+        if (Buffer.from(tagNome).length % 2 !== 0) {
+            cipConnectionManager.writeUInt8(0x00, offsetBase + Buffer.from(tagNome).length);  // Adiciona um byte de preenchimento se o tamanho for ímpar
+
+            // Aumento o offset em 1 pois o padding de preenchimento foi adicionado
+            offsetBase++;
+        }
 
         // 5. Request_Data (Array of octets)
         // Para leitura de tag, o campo Request_Data está vazio.
-        cipConnectionManager.writeUInt8(0x01, 8 + Buffer.from('TESTE2').length);  // Request Data (vazio)
+        cipConnectionManager.writeUInt8(0x01, offsetBase + Buffer.from(tagNome).length);  // Request Data (vazio)
 
         // Verificamos se o tamanho do Message_Request_Size é ímpar e adicionamos um preenchimento se necessário
-        const totalBytesEmbed = cipConnectionManager.subarray(4, 8 + Buffer.from('TESTE2').length + 2).length;  // Calculamos o tamanho do Embed Request
+        let totalBytesEmbed = cipConnectionManager.subarray(4, offsetBase + Buffer.from(tagNome).length + 2).length;  // Calculamos o tamanho do Embed Request
 
-        if (totalBytesEmbed % 2 !== 0) {
-            cipConnectionManager.writeUInt8(0x00, 8 + Buffer.from('TESTE2').length + 2);  // Adicionamos o padding de 1 byte se o tamanho for ímpar
-        }
+        let proximoOffset = totalBytesEmbed + 4;
 
         // Atualizar o tamanho correto do Message_Request_Size
         cipConnectionManager.writeUInt16LE(totalBytesEmbed, 2);
-
-        let proximoOffset = totalBytesEmbed + 4;
 
         // Proximo 1 byte
         // 7. Route_Path_Size (USINT) 
@@ -282,6 +291,8 @@ async function iniciar() {
          */
         (dados) => {
             console.log(`Processando buffer: ${hexDeBuffer(dados)}`);
+
+            let ethernetCabecalho = new EtherNetIPLayer(dados);
 
             const status = dados.readUInt32LE(8);
             if (status != 0x000) {
@@ -615,7 +626,7 @@ async function iniciar() {
 
         console.log(`Solicitando lista de serviços disponíveis`);
 
-        const teste = montarComandoLerTagRRData();
+        const teste = montarComandoLerTagRRData('Tempo_maquina_em_producao_G1');
 
         setInterval(() => {
             socketConexao.write(teste);
