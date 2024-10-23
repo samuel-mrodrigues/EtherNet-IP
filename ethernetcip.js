@@ -294,6 +294,8 @@ async function iniciar() {
 
             let ethernetCabecalho = new EtherNetIPLayer(dados);
 
+            console.log(ethernetCabecalho.printLayer());
+
             const status = dados.readUInt32LE(8);
             if (status != 0x000) {
                 console.log(`Recebido um status diferente de 0 para ENIP: ${status}`);
