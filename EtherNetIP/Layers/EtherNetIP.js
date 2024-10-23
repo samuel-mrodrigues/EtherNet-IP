@@ -15,6 +15,10 @@
  *      Encapsulated data    (ARRAY[0 to 65511] of octet, variable length) // Encapsulated data portion of the message
  */
 
+import { CommandSpecificDataRegisterSession } from "./CommandSpecificDatas/RegisterSession/RegisterSession.js";
+import { CommandSpecificDataListServices } from "./CommandSpecificDatas/ListServices/ListServices.js";
+import { CommandSpecificDataListIdentity } from "./CommandSpecificDatas/ListIdentity/ListIdentity.js";
+
 /**
  * O Layer de EtherNet/IP (Industiral Protocol) contém as informações de encapsulamento do Header + Command Specific Data
  ** O EtherNet/IP é o primeiro layer TCP do protocolo. Ele é composto pelo header de 24 bytes obrigatorios + Command Specific Data (CSD) que é variável dependendo da requisição
@@ -235,6 +239,87 @@ export class EtherNetIPLayer {
     }
 
     /**
+     * Retorna o comando contido no layer
+     */
+    getComando() {
+        return isComandoExiste(this.#campos.header.codigoComando);
+    }
+
+    /**
+     * Retorna o total de bytes após os 24 bytes do Header de Encapsulamento
+     */
+    getTamanhoBytes() {
+        return this.#campos.header.tamanhoBytes;
+    }
+
+    /**
+     * Retorna o numero da sessão ID utilizado para identificar a sessão em uma solicitação
+     */
+    getSessionHandlerID() {
+        return this.#campos.header.sessaoHandlerID;
+    }
+
+    /**
+     * Retorna todo o conteudo do Buffer após os 24 bytes do Header de Encapsulamento (Command Specific Data) que é variavel baseado no comando da requisição
+     */
+    getCommandSpecificData() {
+        return this.#campos.commandSpecificData;
+    }
+
+    /**
+     * Se Command Specific Data representar um comando de Register Session, retorna uma instancia de RegisterSession com as informações de sessão
+     ** Se não for um comando de Register Session, retorna undefined
+     */
+    getAsRegisterSession() {
+        if (this.#campos.header.codigoComando == Comandos.RegisterSession.hex) {
+            return new CommandSpecificDataRegisterSession(this.#campos.commandSpecificData);
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Se o comando no layer representa um comando de Register Session
+     */
+    isRegisterSession() {
+        return this.#campos.header.codigoComando == Comandos.RegisterSession.hex;
+    }
+
+    /**
+     * Se Command Specific Data representar um comando de List Services, retorna uma instancia de ListServices com as informações de serviços disponíveis
+     */
+    getAsListServices() {
+        if (this.#campos.header.codigoComando == Comandos.ListServices.hex) {
+            return new CommandSpecificDataListServices(this.#campos.commandSpecificData);
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Se o comando no layer representa um comando de List Services
+     */
+    isListServices() {
+        return this.#campos.header.codigoComando == Comandos.ListServices.hex;
+    }
+
+    /**
+     * Se o comando no layer representa um comando de List Identity
+     */
+    isListIdentity() {
+        return this.#campos.header.codigoComando == Comandos.ListIdentity.hex;
+    }
+
+    /**
+     * Se Command Specific Data representar um comando de List Identity, retorna uma instancia de ListIdentity com as informações do dispositivo
+     */
+    getAsListIdentity() {
+        if (this.#campos.header.codigoComando == Comandos.ListIdentity.hex) {
+            return new CommandSpecificDataListIdentity(this.#campos.commandSpecificData);
+        }
+    }
+
+    /**
      * Printa no console de forma bontinha as informações do layer EtherNet/IP
      */
     printLayer() {
@@ -244,17 +329,6 @@ export class EtherNetIPLayer {
         }
 
         let logMsg = `########## EtherNet/IP Layer ##########\n`;
-
-        // console.log('  Header:');
-        // console.log(`    Comando: ${trataNullo(this.#campos.header.codigoComando)} - ${trataNullo(trataNullo(isComandoExiste(this.#campos.header.codigoComando)).descricao)}`);
-        // console.log(`    Tamanho Bytes: ${trataNullo(this.#campos.header.tamanhoBytes)}`);
-        // console.log(`    Session Handler ID: ${trataNullo(this.#campos.header.sessaoHandlerID)}`);
-        // console.log(`    Status: ${trataNullo(this.#campos.header.statusCodigo)} - ${trataNullo(trataNullo(isStatusExiste(this.#campos.header.statusCodigo)).descricao)}`);
-        // console.log(`    Contexto Remetente: ${trataNullo(trataNullo(this.#campos.header.contextoRemetente).toString('hex'))}`);
-        // console.log(`    Opções: ${trataNullo(this.#campos.header.opcoes)}`);
-        // console.log('  Command Specific Data:');
-        // console.log(`    Dados: ${trataNullo(trataNullo(this.#campos.commandSpecificData).toString('hex'))}`);
-
         logMsg += `  Header:\n`;
         logMsg += `    Comando: ${trataNullo(this.#campos.header.codigoComando)} - ${trataNullo(trataNullo(isComandoExiste(this.#campos.header.codigoComando)).descricao)}\n`;
         logMsg += `    Tamanho Bytes: ${trataNullo(this.#campos.header.tamanhoBytes)}\n`;
@@ -267,33 +341,6 @@ export class EtherNetIPLayer {
         logMsg += `#######################################\n`;
 
         return logMsg;
-    }
-}
-
-/**
- * Representação dos campos do Command Specific Data do comando Register Session
- */
-export class CommandSpecificDataRegisterSession {
-    
-    #campos = {
-        protocolVersion: undefined,
-        optionFlags: undefined
-    }
-
-    /**
-     * Instanciar o payload do comando de Register Session
-     * @param {Buffer} buffer - Opcionamente um buffer para dar parse no conteudo
-     */
-    constructor(buffer) {
-
-    }
-
-    /**
-     * Passa um Buffer do Command Specific Data do layer EtherNet/IP e faz o parse dos campos
-     * @param {Buffer} buffer - Buffer com os dados do Command Specific Data
-     */
-    parseBuffer(buffer) {
-        
     }
 }
 

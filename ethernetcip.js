@@ -294,7 +294,13 @@ async function iniciar() {
 
             let ethernetCabecalho = new EtherNetIPLayer(dados);
 
-            console.log(ethernetCabecalho.printLayer());
+            if (ethernetCabecalho.isListIdentity()) {
+                let identi = ethernetCabecalho.getAsListIdentity();
+
+                identi.getTotalIdentidades
+                console.log(identi);
+                
+            }
 
             const status = dados.readUInt32LE(8);
             if (status != 0x000) {
@@ -627,12 +633,9 @@ async function iniciar() {
         console.log(`Iniciando testes agora..`);
 
         console.log(`Solicitando lista de serviços disponíveis`);
+        const teste = montarComandoListaIdentidade();
 
-        const teste = montarComandoLerTagRRData('Tempo_maquina_em_producao_G1');
-
-        setInterval(() => {
-            socketConexao.write(teste);
-        }, 500);
+        socketConexao.write(teste);
     }
 
     conectarSocket();
