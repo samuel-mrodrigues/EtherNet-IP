@@ -213,6 +213,37 @@ export class CommandSpecificDataListServices {
     }
 
     /**
+     * Criar um buffer com os campos do Command Specific Data do List Services
+     * @param {Object} parametros - Parametros para setar no Buffer
+     */
+    criarBuffer() {
+        const retornoBuff = {
+            /**
+             * Se deu pra criar com sucesso o Buffer
+            */
+            isSucesso: false,
+            /**
+             * 
+             */
+            sucesso: {
+                buffer: undefined
+            },
+            /**
+             * Detalhes do erro ocorrido
+             */
+            erro: {
+                descricao: ''
+            }
+        }
+
+        let buffer = Buffer.alloc(0);
+
+        retornoBuff.isSucesso = true;
+        retornoBuff.sucesso.buffer = buffer;
+        return retornoBuff;
+    }
+
+    /**
      * Retorna o total de serviços retornados pelo dispositivo
      */
     getNumeroServicos() {

@@ -1,7 +1,5 @@
 import net from "net";
 
-import { Comandos, EtherNetIPLayer } from "./EtherNetIP/Layers/EtherNetIP.js";
-
 async function iniciar() {
     console.log(`Iniciando...`);
 
@@ -292,15 +290,7 @@ async function iniciar() {
         (dados) => {
             console.log(`Processando buffer: ${hexDeBuffer(dados)}`);
 
-            let ethernetCabecalho = new EtherNetIPLayer(dados);
 
-            if (ethernetCabecalho.isListIdentity()) {
-                let identi = ethernetCabecalho.getAsListIdentity();
-
-                identi.getTotalIdentidades
-                console.log(identi);
-                
-            }
 
             const status = dados.readUInt32LE(8);
             if (status != 0x000) {
@@ -633,7 +623,7 @@ async function iniciar() {
         console.log(`Iniciando testes agora..`);
 
         console.log(`Solicitando lista de serviços disponíveis`);
-        const teste = montarComandoListaIdentidade();
+        const teste = montarComandoLerTagRRData('TESTE2')
 
         socketConexao.write(teste);
     }

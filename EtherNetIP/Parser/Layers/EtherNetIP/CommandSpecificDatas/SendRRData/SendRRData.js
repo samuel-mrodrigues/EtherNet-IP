@@ -253,6 +253,9 @@ export class CommandSpecificDataSendRRData {
 
         retornoBuff.isSucesso = true;
         retornoBuff.sucesso.buffer = novoBuff;
+
+        // Cortar o buffer para o tamanho exato do que foi escrito
+        retornoBuff.sucesso.buffer = novoBuff.subarray(0, offsetItem);
         return retornoBuff;
     }
 }

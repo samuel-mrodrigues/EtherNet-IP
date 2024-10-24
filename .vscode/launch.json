@@ -12,6 +12,15 @@
                 "<node_internals>/**"
             ],
             "program": "${workspaceFolder}\\ethernetcip.js"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Arquivo Atual",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "${workspaceFolder}\\${file}"
         }
     ]
 }

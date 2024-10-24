@@ -127,27 +127,4 @@ export class CommandSpecificDataRegisterSession {
     getOptionFlags() {
         return this.#campos.optionFlags;
     }
-
-    /**
-     * Constroi um Buffer de 4 bytes com os campos do Command Specific Data de Register Session
-     ** Primeiros 2 Bytes: Protocol Version
-     ** Próximos 2 Bytes: Option Flags
-     * @param {Object} opcoes - Opções para construir o buffer com os campos configurados desejados
-     * @param {Number} opcoes.protocolVersion - Versão do protocolo de comunicação, segundo o manual sempre deve ser 1
-     * @param {Number} opcoes.optionFlags - Flags de opções da sessão, segundo o manual deve estar tudo como 0
-     */
-    construirBuffer(opcoes) {
-        if (opcoes == undefined) throw new Error('Nenhuma opção foi passada para construir o buffer do Command Specific Data de Register Session');
-        if (typeof opcoes != 'object') throw new Error('As opções para construir o buffer deve ser um objeto');
-
-        this.#campos.optionFlags = opcoes.optionFlags;
-        this.#campos.protocolVersion = opcoes.protocolVersion;
-
-        const buff = Buffer.alloc(4);
-
-        buff.writeUInt16LE(this.#campos.protocolVersion, 0);
-        buff.writeUInt16LE(this.#campos.optionFlags, 2);
-
-        return buff;
-    }
 }

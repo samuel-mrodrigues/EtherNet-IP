@@ -25,7 +25,7 @@ import { CommandSpecificDataListIdentity } from "./CommandSpecificDatas/ListIden
  ** Header: 24 bytes
  ** Command Specific Data: Bytes variavél dependo da solicitação
  */
-export class EtherNetIPLayer {
+export class EtherNetIPLayerParser {
 
     /**
      * Status do layer com as informações atuais
