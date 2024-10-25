@@ -118,6 +118,7 @@ export class EtherNetIPLayerBuilder {
         return cmdListServices;
     }
 
+    
     /**
      * Criar o buffer completo de header de encapsulamento de 24 bytes + Command Specific Data para ser enviado ao dispositivo remoto
      */

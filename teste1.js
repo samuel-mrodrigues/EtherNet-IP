@@ -5,6 +5,9 @@ import net from "net"
 
 function iniciar() {
 
+    console.log('dsada');
+    
+
     let sessionHandlerId = 0;
 
     const socketConexao = new net.Socket();

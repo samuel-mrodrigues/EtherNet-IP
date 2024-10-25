@@ -2,6 +2,10 @@
  * SendRRData possui um Command Specific Data com 3 campos
  */
 
+/**
+ * SendRRData só deve ser utilizado para enviar solicitações do tipo UCMM(Unconnected Messages) segundo o manual.
+ */
+
 // Vamos lá, seguindo a explicação do manual, o SendRRData encapsula um array de "itens" encapsulados, que descrevem as informações dos layers futuros. 
 // Por exemplo, segundo o manual, cada "item" tem uma função, alguns itens são do tipo "endereço" e outros "data" dependendo da situação, entendi que é meio que o caminho que vc quer solicitar.
 // O manual consta que, obrigatoriamente primeiro um item endereço deve ser informado, seguido pelo item do tipo data do que vai ser solicitado, e então outros itens adicionais podem ser adicionados.
@@ -96,6 +100,8 @@ export class CommandSpecificDataSendRRDataBuilder {
 
         return novoItem;
     }
+
+
 
     /**
      * Remove um item dos items para encapsular
