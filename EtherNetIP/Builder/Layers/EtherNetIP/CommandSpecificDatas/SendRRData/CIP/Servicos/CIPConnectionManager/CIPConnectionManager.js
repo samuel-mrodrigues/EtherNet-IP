@@ -15,6 +15,11 @@ import { CIPSendRRDataBuilder } from "../../CIP.js";
  */
 export class CIPConnectionManagerBuilder {
 
+    /**
+     * Código do serviço do CIP Connection Manager(o 0x52 simboliza Unconnected Messages para o Connection Manager que é uma das unicas formas de se comunicar)
+     */
+    codigoServico = 0x52;
+
     #campos = {
         /**
          * A prioridade do comando para Uncounnected Messages sempre deve ser 0 segundo o manual
@@ -26,6 +31,19 @@ export class CIPConnectionManagerBuilder {
          * @type {Number}
          */
         timeoutTicks: undefined,
+        /**
+         * Request Path é o caminho do que foi solicitado ao dispositivo. O CIP Connection Manager para Unconnected Messages é sempre a classe 0x06 instancia unica 1
+         */
+        requestPath: {
+            /**
+             * @type {Buffer}
+             */
+            classe: undefined,
+            /**
+             * @type {Buffer}
+             */
+            instancia: undefined
+        },
         /**
          * Route Path pelo que entendi é o dispositivo que irá receber a solicitação, contendo a porta de origem e o link address?
          */
@@ -103,6 +121,15 @@ export class CIPConnectionManagerBuilder {
                 if (porta) {
                     this.#campos.routePath.porta = 0b0001;
                 }
+            },
+            requestPath: (classe, instancia) => {
+                if (classe) {
+                    this.#campos.requestPath.classe = Buffer.from([0x20, 0x06]);
+                }
+
+                if (instancia) {
+                    this.#campos.requestPath.instancia = Buffer.from([0x24, 0x01])
+                }
             }
         }
 
@@ -111,6 +138,7 @@ export class CIPConnectionManagerBuilder {
             if (parametros.priority != undefined) this.setPriority(parametros.priority);
             if (parametros.timeoutTicks != undefined) this.setTimeoutTicks(parametros.timeoutTicks);
             if (parametros.routePath != undefined) this.setRoutePath(parametros.routePath);
+
         }
 
         // Configurar os campos padrão se não foi definido qual vai ser
@@ -125,6 +153,10 @@ export class CIPConnectionManagerBuilder {
             if (this.#campos.routePath.tipoSegmento == undefined) valoresPadroes.routePath(false, false, true);
             if (this.#campos.routePath.porta == undefined) valoresPadroes.routePath(false, false, false, true);
         }
+
+        // Definir o Request Path padrão se não foi definido
+        if (this.#campos.requestPath.classe == undefined) valoresPadroes.requestPath(true);
+        if (this.#campos.requestPath.instancia == undefined) valoresPadroes.requestPath(false, true);
 
         return this;
     }
@@ -191,6 +223,22 @@ export class CIPConnectionManagerBuilder {
             }
         }
 
+        // Alocar 6 bytes pro cabeçalho do serviço CIP Connection Manager
+        const bufferCabecalho = Buffer.alloc(6);
+
+        // Primeiro 1 byte é oodigo do serviço
+        bufferCabecalho.writeUInt8(this.codigoServico, 0);
+
+        // Próximo 1 byte é o tamanho do Request Path(nesse caso é o Connection Manager)
+        bufferCabecalho.writeUInt8(Math.ceil((this.#campos.requestPath.classe.length + this.#campos.requestPath.instancia.length) / 2), 1);
+
+        // Próximos 4 bytes o Request Path do Connection Manager
+        // 2 Bytes da Classe
+        this.#campos.requestPath.classe.copy(bufferCabecalho, 2);
+
+        // 2 Bytes da Instancia
+        this.#campos.requestPath.instancia.copy(bufferCabecalho, 4);
+
         // Gerar o Buffer do CIP Embedded Message Request
         let gerarBufferCIPEmbbed = this.#campos.CIPEmbeddedMessage.CIPServicoSolicitado.criarBuffer();
         if (!gerarBufferCIPEmbbed.isSucesso) {
@@ -230,8 +278,11 @@ export class CIPConnectionManagerBuilder {
         buff.writeUInt8(routePath, 6 + offsetPayloadCIPEmbedded);
         buff.writeUInt8(this.#campos.routePath.linkAddress, 7 + offsetPayloadCIPEmbedded);
 
+        // Adicionar também o cabeçalho do CIP Connection Manager (Service, Request Path Size e Request Path) ao buffer final
+        const bufferFinal = Buffer.concat([bufferCabecalho, buff]);
+
         retBuff.isSucesso = true;
-        retBuff.sucesso.buffer = buff;
+        retBuff.sucesso.buffer = bufferFinal;
         return retBuff;
     }
 }

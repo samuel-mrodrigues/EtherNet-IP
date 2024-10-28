@@ -75,7 +75,7 @@ export class CommandSpecificDataSendRRDataBuilder {
         itensEncapsulados: [],
         /**
          * O pacote CIP contém absolutamente tudo que vai ser solicitado no comando SendRRData via protocolo CIP.
-         * @type {CIPSendRRDataBuilder }
+         * @type {CIPSendRRDataBuilder}
          */
         CIPEncapsulado: undefined,
     }

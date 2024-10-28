@@ -23,24 +23,51 @@ function iniciar() {
             socketConexao.write(bufferEtherNetIP.sucesso.buffer);
 
             setTimeout(() => {
-                console.log(`Solicitando List Identity...`);
 
-                let sessionHandlerId = novoComando.getSessionHandle();
-                novoComando = new EtherNetIPLayerBuilder();
-                novoComando.setSessionHandle(sessionHandlerId);
+                let testaSinglePacket = () => {
+                    let sessionHandlerId = novoComando.getSessionHandle();
 
-                let comandoRRData = novoComando.buildSendRRData();
-                let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
+                    novoComando = new EtherNetIPLayerBuilder();
+                    novoComando.setSessionHandle(sessionHandlerId);
 
-                let servicoLerTag = connectionManagerRRData.getCIPMessage().buildSingleServicePacket();
-                servicoLerTag.setString('TESTE2');
+                    let comandoRRData = novoComando.buildSendRRData();
+                    let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
 
-                comandoRRData.gerarItemsEncapsulados();
+                    let singleService = connectionManagerRRData.getCIPMessage().buildSingleServicePacket();
+                    singleService.setString('TESTE2').setIncluirCIPGenericVazio(true);
 
+                    comandoRRData.gerarItemsEncapsulados();
 
-                let cmdPraWrite = novoComando.criarBuffer().sucesso.buffer;
+                    let writeDados = novoComando.criarBuffer();
 
-                socketConexao.write(cmdPraWrite);
+                    socketConexao.write(writeDados.sucesso.buffer);
+                }
+
+                let testaMultiplePackets = () => {
+                    let sessionHandlerId = novoComando.getSessionHandle();
+
+                    novoComando = new EtherNetIPLayerBuilder();
+                    novoComando.setSessionHandle(sessionHandlerId);
+
+                    let comandoRRData = novoComando.buildSendRRData();
+                    let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
+
+                    let multipleService = connectionManagerRRData.getCIPMessage().buildMultipleServicePacket().setRequestPath(Buffer.from([0x20, 0x02]), Buffer.from([0x24, 0x01]));
+                    multipleService.addSingleServicePacket().servico.setString('BD_D1_MOTIVO_DIA1').setIncluirCIPGenericVazio(true);
+                    multipleService.addSingleServicePacket().servico.setString('TESTE').setIncluirCIPGenericVazio(true);
+                    multipleService.addSingleServicePacket().servico.setString('TESTE2').setIncluirCIPGenericVazio(true);
+                    // multipleService.addSingleServicePacket().servico.setString('CARALHA').setIncluirCIPGenericVazio(true);
+
+                    comandoRRData.gerarItemsEncapsulados();
+
+                    let cmdPraWrite = novoComando.criarBuffer().sucesso.buffer;
+
+                    socketConexao.write(cmdPraWrite);
+
+                }
+
+                testaMultiplePackets();
+
             }, 2000);
         });
 
