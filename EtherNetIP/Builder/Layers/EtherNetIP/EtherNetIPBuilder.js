@@ -20,6 +20,7 @@
 import { CommandSpecificDataRegisterSessionBuilder } from "./CommandSpecificDatas/RegisterSession/RegisterSessionBuilder.js";
 import { CommandSpecificDataListEntityBuilder } from "./CommandSpecificDatas/ListIdentity/ListIdentityBuilder.js";
 import { CommandSpecificDataListServicesBuilder } from "./CommandSpecificDatas/ListServices/ListServices.js";
+import { CommandSpecificDataSendRRDataBuilder } from "./CommandSpecificDatas/SendRRData/SendRRData.js";
 
 /**
  * O Layer de EtherNet/IP (Industiral Protocol) contém as informações de encapsulamento do Header + Command Specific Data
@@ -50,7 +51,7 @@ export class EtherNetIPLayerBuilder {
         },
         /**
          * Automaticamente assume varios tipos dependendo do comando solicitado
-         * @type {CommandSpecificDataRegisterSessionBuilder | CommandSpecificDataListEntityBuilder | CommandSpecificDataListServicesBuilder}
+         * @type {CommandSpecificDataRegisterSessionBuilder | CommandSpecificDataListEntityBuilder | CommandSpecificDataListServicesBuilder | CommandSpecificDataSendRRDataBuilder}
          */
         classeCommandSpecificData: undefined
     }
@@ -76,6 +77,29 @@ export class EtherNetIPLayerBuilder {
      */
     constructor() {
         return this;
+    }
+
+    /**
+     * Configurar o Session Handle para o dispositivo remoto reconhecer a solicitação
+     * @param {Number} sessionHandle - ID de sessão para o dispositivo reconhecer e permitir a solicitação
+     */
+    setSessionHandle(sessionHandle) {
+        if (sessionHandle == undefined) throw new Error(`É necessário informar o Session Handle para o dispositivo reconhecer a solicitação.`);
+        if (typeof sessionHandle != 'number') throw new Error(`O Session Handle precisa ser um número.`);
+
+        console.log(`Session Handle configurado para: ${sessionHandle}`);
+        
+        this.#campos.header.sessionHandle = sessionHandle;
+
+        return this;
+
+    }
+
+    /**
+     * Retorna o numero de sessão configurado no layer ou undefined se não foi configurado
+     */
+    getSessionHandle() {
+        return this.#campos.header.sessionHandle;
     }
 
     /**
@@ -118,7 +142,19 @@ export class EtherNetIPLayerBuilder {
         return cmdListServices;
     }
 
-    
+    /**
+     * Builda o layer para corresponder ao Command Specific Data de um comando Send RR Data
+     */
+    buildSendRRData() {
+        let cmdSendRRData = new CommandSpecificDataSendRRDataBuilder();
+
+        this.#campos.header.command = Comandos.SendRRData.hex;
+        this.#campos.classeCommandSpecificData = cmdSendRRData;
+
+        return cmdSendRRData;
+    }
+
+
     /**
      * Criar o buffer completo de header de encapsulamento de 24 bytes + Command Specific Data para ser enviado ao dispositivo remoto
      */
@@ -247,6 +283,28 @@ export class EtherNetIPLayerBuilder {
                 setComandoCabecalho(Comandos.ListServices.hex);
 
                 this.#buffers.commandSpecificData = bufferListServices.sucesso.buffer;
+                break;
+            }
+            case Comandos.SendRRData.hex: {
+
+                /**
+                 * @type {CommandSpecificDataSendRRDataBuilder}
+                 */
+                const classeComando = this.#campos.classeCommandSpecificData;
+
+                const bufferSendRRData = classeComando.criarBuffer();
+                if (!bufferSendRRData.isSucesso) {
+                    retornoBuff.erro.descricao = `Erro ao gerar Buffer para o comando Send RR Data: ${bufferSendRRData.erro.descricao}`;
+                    return retornoBuff;
+                }
+
+                // Setar o tamanho do Command Specific Data
+                setTamanhoCommandSpecificData(bufferSendRRData.sucesso.buffer.length);
+
+                // Setar o comando como SendRRData
+                setComandoCabecalho(Comandos.SendRRData.hex);
+
+                this.#buffers.commandSpecificData = bufferSendRRData.sucesso.buffer;
                 break;
             }
             default: {

@@ -625,7 +625,9 @@ async function iniciar() {
         console.log(`Solicitando lista de serviços disponíveis`);
         const teste = montarComandoLerTagRRData('TESTE2')
 
-        socketConexao.write(teste);
+        setInterval(() => {
+            socketConexao.write(teste);
+        }, 1000);
     }
 
     conectarSocket();

@@ -1,6 +1,12 @@
+import { CIPConnectionManagerBuilder } from "./Servicos/CIPConnectionManager/CIPConnectionManager.js";
+import { SingleServicePacketServiceBuilder } from "./Servicos/SingleServicePacket/SingleServicePacket.js";
+
 /**
- * O layer CIP (Common Industrial Protocol) vem logo após o layer de EtherNetIP. Nesse caso, esse CIP Layer contém os dados encapsulados para mensagens unconnected
- ** O CIP Layer para o SendRRData por padrão todos os comandos precisam ser enviados a classe Connection Manager instancia 0. Pois ela vai rotear internamente pelo CIP remoto o que precisamos.
+ * O layer CIP (Common Industrial Protocol) contém detalhes de uma solicitação CIP. Nesse caso, esse CIP Layer contém os dados encapsulados para mensagens unconnected via SendRRData
+ ** O CIP segue uma estrutura dinamica dependendo do contexto, porém sempre há no minimo 3 campos:
+ ** 1 Byte: Código do serviço requisitado
+ ** Próximos 1 byte: Tamanho em WORDS do Request Path abaixo
+ ** Próximos bytes: Request Path que seria o conteudo dinamico que varia dependendo do serviço solicitado
  */
 export class CIPSendRRDataBuilder {
 
@@ -12,47 +18,43 @@ export class CIPSendRRDataBuilder {
          * Código HEX do serviço solicitado. Sempre é 1 byte
          * @type {Number}
          */
-        servico: undefined,
+        codigoServico: undefined,
         /**
-         * O Request Path da classe e instancia que tá sendo solicitada no comando SendRRData do CIP
-         * @type {Buffer}
+         * O serviço a ser executado nessa instancia de builder CIP.
+         * @type {CIPConnectionManagerBuilder | SingleServicePacketServiceBuilder }
          */
-        requestPath: undefined
+        servico: undefined
     }
 
     /**
      * Instanciar um layer CIP para SendRRData
      */
     constructor() {
-
+        return this;
     }
 
     /**
-     * Seta o código de serviço que vai ser utilizado
-     * @param {Number} serviceHex - Código do serviço solicitado
+     * Buildar o layer CIP para corresponder ao serviço de Connection Manager
+     * @returns {CIPConnectionManagerBuilder} Retorna o Builder do Connection Manager para customizar o serviço solicitado
      */
-    setServiceCode(serviceHex) {
-        if (getService(serviceHex) == undefined) {
-            throw new Error(`Serviço informado ${serviceHex} não é valido. Serviços válidos: ${Object.values(Servicos).map(servico => `Hex: ${servico.hex} - ${servico.descricao}`).join(', ')}`);
-        }
+    buildCIPConnectionManager() {
+        this.#campos.codigoServico = Servicos.UnconnectedMessageRequest.hex;
 
-        this.#campos.servico = serviceHex;
+        this.#campos.servico = new CIPConnectionManagerBuilder();
+
+        return this.#campos.servico;
     }
 
     /**
-     * Define o Request Path da classe e instancia que tá sendo solicitada no comando SendRRData do CIP para o dispositivo remoto
-     ** No caso do comando SendRRData que é para unconnected messages, o Request Path deve ser a classe Connection Manager, instancia 0
-     * @param {Buffer} buffer - Buffer contendo o caminho que aponta para a classe e instancia solicitada
+     * Buildar o layer CIP para corresponder ao serviço de Single Service Packet
+     * @returns {SingleServicePacketServiceBuilder} Retorna o Builder do Single Service Packet para customizar o serviço solicitado
      */
-    setRequestPath(buffer) {
-        this.#campos.requestPath = buffer;
-    }
+    buildSingleServicePacket() {
+        this.#campos.codigoServico = Servicos.SingleServicePacket.hex;
 
-    /**
-     * Retorna o tamanho em WORDs do Path Size configurado. Retorna nullo se Request Path não foi setado
-     */
-    getTamanhoPathSize() {
-        if (this.#campos.requestPath == undefined) return undefined;
+        this.#campos.servico = new SingleServicePacketServiceBuilder();
+
+        return this.#campos.servico;
     }
 
     /**
@@ -82,22 +84,73 @@ export class CIPSendRRDataBuilder {
             }
         }
 
-        // Aloca uns 15 bytes que deve ser o suficiente
-        let buffer = Buffer.alloc(15);
+        // O buffer de cabeçalho CIP contém apenas 2 bytes pra guardar o serviço e o tamanho do Request Path
+        let bufferCabecalho = Buffer.alloc(2);
 
-        // O 1 byte é o código do serviço solicitado
-        buffer.writeUInt8(this.#campos.servico, 0);
+        // Vou armazenar o conteudo dinamico do serviço CIP em um array
+        let bufferCorpo = Buffer.alloc(0);
 
-        // Os próximos 1 bytes é o total de WORDs contido no Request Path
-        buffer.writeUInt16LE(this.#campos.requestPath.length / 2, 1);
+        switch (this.#campos.codigoServico) {
+            case Servicos.UnconnectedMessageRequest.hex: {
 
-        // Os próximos bytes são o Request Path
-        this.#campos.requestPath.forEach((byte, index) => {
-            buffer.writeUInt8(byte, 3 + index);
-        });
+                // Setar o 1 byte do serviço
+                bufferCabecalho.writeUInt8(Servicos.UnconnectedMessageRequest.hex, 0);
+
+                /**
+                 * @type {CIPConnectionManagerBuilder}
+                 */
+                const instanciaCIPConnectionManager = this.#campos.servico;
+
+                // Gerar o buffer do CIP Connection Manager que é o serviço atual configurado no CIP Layer
+                let gerarBufferPath = instanciaCIPConnectionManager.criarBuffer();
+                if (!gerarBufferPath.isSucesso) {
+                    retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Erro ao gerar o buffer do CIP Connection Manager: ${gerarBufferPath.erro.descricao}`;
+                    return retornoBuffer;
+                }
+
+                // Setar o proximo 1 byte com o tamanho em WORDS do Request Path do Connection Manager
+                bufferCabecalho.writeUInt8(2, 1);
+
+                // Adicionar os bytes que apontam pro Connection Manager e os bytes gerados pelo CIP Connection Manager que correspondem somente ao COmmand Specific Data em diante 
+                bufferCorpo = Buffer.concat([Buffer.from([0x20, 0x06, 0x24, 0x01]),gerarBufferPath.sucesso.buffer]);
+                break;
+            }
+            case Servicos.SingleServicePacket.hex: {
+
+                // Setar o 1 byte do serviço
+                bufferCabecalho.writeUInt8(Servicos.SingleServicePacket.hex, 0);
+
+                /**
+                 * @type {SingleServicePacketServiceBuilder}
+                 */
+                const instanciaCIPSingleServicePacket = this.#campos.servico;
+
+                // Gerar o buffer CIP do Single Service Packet
+                let gerarBufferPath = instanciaCIPSingleServicePacket.criarBuffer();
+                if (!gerarBufferPath.isSucesso) {
+                    retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Erro ao gerar o buffer do Single Service Packet: ${gerarBufferPath.erro.descricao}`;
+                    return retornoBuffer;
+                }
+
+                // Setar o proximo 1 byte com o tamanho em WORDS do Request Path do Single Service Packet
+                bufferCabecalho.writeUInt8(gerarBufferPath.sucesso.requestPathWords, 1);
+
+                // Como é um single service packet, adicionar também ao final 2 bytes com 0x10 que é o Command Specific Data do CIP Class Generic que só aparece pra serviços Single Service Packet
+                bufferCorpo = Buffer.concat([gerarBufferPath.sucesso.buffer, Buffer.from([0x01, 0x00])]);
+                break;
+            }
+            default: {
+
+                break;
+            }
+        }
+
+        // Concatenar o buffer do cabeçalho CIP com o buffer do corpo
+
+        const bufferCompleto = Buffer.concat([bufferCabecalho, bufferCorpo]);
 
         retornoBuffer.isSucesso = true;
-        retornoBuffer.sucesso.buffer = buffer;
+        retornoBuffer.sucesso.buffer = bufferCompleto;
 
         return retornoBuffer;
     }
@@ -112,29 +165,19 @@ export function getService(hex) {
 }
 
 /**
- * Serviços disponiveis para utilizar no comando SendRRData para o layer CIP 
+ * Serviços disponiveis para utilizar no contexto atual do layer CIP
  */
 export const Servicos = {
     UnconnectedMessageRequest: {
         hex: 0x52,
         descricao: 'Unconnected Message Request'
-    }
-}
-
-/**
- * Paths de requisição disponiveis para utilizar no comando SendRRData para o layer CIP
- */
-export const RequestsPathsProntos = {
-    /**
-     * Request Path do CIP Connection Manager
-     */
-    CIPConnectionManager: {
-        buffer: Buffer.from([0x20, 0x06, 0x24, 0x01]),
     },
-    /**
-     * Request Path do CIP PCCC 
-     */
-    PCCC: {
-        buffer: Buffer.from([0x020, 0x67, 0x24, 0x01])
+    MultipleServicePacket: {
+        hex: 0x0a,
+        descricao: 'Multiple Service Packet'
+    },
+    SingleServicePacket: {
+        hex: 0x4c,
+        descricao: 'Single Service Packet'
     }
 }

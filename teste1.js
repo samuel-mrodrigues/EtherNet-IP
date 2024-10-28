@@ -5,18 +5,15 @@ import net from "net"
 
 function iniciar() {
 
-    console.log('dsada');
-    
-
     let sessionHandlerId = 0;
 
     const socketConexao = new net.Socket();
+    let novoComando = new EtherNetIPLayerBuilder();
 
     const conectarSocket = () => {
         socketConexao.connect({ host: '192.168.3.120', port: 44818 }, () => {
             console.log(`Conexão TCP estabelecida`);
 
-            let novoComando = new EtherNetIPLayerBuilder();
             novoComando.buildRegisterSession();
             let bufferEtherNetIP = novoComando.criarBuffer();
 
@@ -28,10 +25,22 @@ function iniciar() {
             setTimeout(() => {
                 console.log(`Solicitando List Identity...`);
 
+                let sessionHandlerId = novoComando.getSessionHandle();
                 novoComando = new EtherNetIPLayerBuilder();
-                novoComando.buildListServices();
+                novoComando.setSessionHandle(sessionHandlerId);
 
-                socketConexao.write(novoComando.criarBuffer().sucesso.buffer);
+                let comandoRRData = novoComando.buildSendRRData();
+                let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
+
+                let servicoLerTag = connectionManagerRRData.getCIPMessage().buildSingleServicePacket();
+                servicoLerTag.setString('TESTE2');
+
+                comandoRRData.gerarItemsEncapsulados();
+
+
+                let cmdPraWrite = novoComando.criarBuffer().sucesso.buffer;
+
+                socketConexao.write(cmdPraWrite);
             }, 2000);
         });
 
@@ -70,6 +79,8 @@ function iniciar() {
 
             console.log(`Comando de register session! Sessão de ID recebido: ${parserEIP.getSessionHandlerID()}`);
             sessionHandlerId = parserEIP.getSessionHandlerID();
+
+            novoComando.setSessionHandle(sessionHandlerId);
             return;
         }
 
