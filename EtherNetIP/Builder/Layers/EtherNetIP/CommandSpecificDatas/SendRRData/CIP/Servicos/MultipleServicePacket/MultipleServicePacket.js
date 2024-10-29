@@ -57,7 +57,7 @@ export class MultipleServicePacketServiceBuilder {
     /**
      * Código do serviço do Multiple Service Packet
      */
-    codigoServico = 0x0a;
+    #codigoServico = 0x0a;
 
     /**
      * Os campos inclusos no serviço Multiple Service Packet
@@ -114,7 +114,7 @@ export class MultipleServicePacketServiceBuilder {
         const bufferCabecalho = Buffer.alloc(6);
 
         // 1 Byte é código do serviço(Nesse caso MultipleServicePacket)
-        bufferCabecalho.writeUInt8(this.codigoServico, 0);
+        bufferCabecalho.writeUInt8(this.#codigoServico, 0);
 
         // 1 Byte pro Request Path Size em WORDs
         bufferCabecalho.writeUInt8(Math.ceil((this.#campos.requestPath.classe.length + this.#campos.requestPath.instancia.length) / 2), 1);
@@ -225,6 +225,15 @@ export class MultipleServicePacketServiceBuilder {
 
             this.#campos.requestPath.instancia = instancia;
         }
+
+        return this;
+    }
+
+    /**
+     * Define o Request Path do serviço Message Router(que geralmente deve ser usado para mensagens UCMM)
+     */
+    setAsMessageRouter() {
+        this.setRequestPath(Buffer.from([0x20, 0x02]), Buffer.from([0x24, 0x01]));
 
         return this;
     }

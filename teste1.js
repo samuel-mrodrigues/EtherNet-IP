@@ -1,3 +1,4 @@
+import { DataTypesNumericos } from "./EtherNetIP/Builder/Layers/EtherNetIP/CommandSpecificDatas/SendRRData/CIP/Servicos/SingleServicePacket/SingleServicePacket.js";
 import { EtherNetIPLayerBuilder } from "./EtherNetIP/Builder/Layers/EtherNetIP/EtherNetIPBuilder.js";
 import { EtherNetIPLayerParser } from "./EtherNetIP/Parser/Layers/EtherNetIP/EtherNetIPParser.js";
 
@@ -66,7 +67,53 @@ function iniciar() {
 
                 }
 
-                testaMultiplePackets();
+                let testeSinglePacketWrite = () => {
+                    let sessionHandlerId = novoComando.getSessionHandle();
+
+                    novoComando = new EtherNetIPLayerBuilder();
+                    novoComando.setSessionHandle(sessionHandlerId);
+
+                    let comandoRRData = novoComando.buildSendRRData();
+                    let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
+
+                    let instrucaoEscreveTag = connectionManagerRRData.getCIPMessage().buildSingleServicePacket();
+
+                    instrucaoEscreveTag.setAsSetAttribute({
+                        nome: 'Tempo_maquina_em_producao_G1',
+                        datatype: DataTypesNumericos.DINT.codigo,
+                        valor: 55
+                    })
+
+                    comandoRRData.gerarItemsEncapsulados();
+
+                    let writeDados = novoComando.criarBuffer();
+
+                    socketConexao.write(writeDados.sucesso.buffer);
+                }
+
+                let testeMultiplePacketWrite = () => {
+                    let sessionHandlerId = novoComando.getSessionHandle();
+
+                    novoComando = new EtherNetIPLayerBuilder();
+                    novoComando.setSessionHandle(sessionHandlerId);
+
+                    let comandoRRData = novoComando.buildSendRRData();
+                    let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
+
+                    let instrucaoMultipleServices = connectionManagerRRData.getCIPMessage().buildMultipleServicePacket().setAsMessageRouter();
+                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({nome: 'TESTE2', datatype: DataTypesNumericos.DINT.codigo, valor: 55});
+                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({nome: 'Tempo_maquina_em_producao_G1', datatype: DataTypesNumericos.DINT.codigo, valor: 666});
+                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({nome: 'Tdasdsadas', datatype: DataTypesNumericos.DINT.codigo, valor: 99});
+
+                    comandoRRData.gerarItemsEncapsulados();
+
+                    let writeDados = novoComando.criarBuffer();
+
+                    socketConexao.write(writeDados.sucesso.buffer);
+
+                }
+
+                testeMultiplePacketWrite();
 
             }, 2000);
         });
