@@ -47,7 +47,12 @@ export class EtherNetIPLayerBuilder {
              * ID de sessão para o dispositivo reconhecer e permitir a solicitação(caso precise)
              * @type {Number}
              */
-            sessionHandle: undefined
+            sessionHandle: undefined,
+            /**
+             * O campo Sender Context é um campo de 8 bytes livre que é enviado ao dispositivo remoto, e como resposta o dispositivo remoto também retorna o mesmo Sender Contexto pra aquela requisição.
+             * @type {Buffer}
+             */
+            senderContext: Buffer
         },
         /**
          * Automaticamente assume varios tipos dependendo do comando solicitado
@@ -88,11 +93,22 @@ export class EtherNetIPLayerBuilder {
         if (typeof sessionHandle != 'number') throw new Error(`O Session Handle precisa ser um número.`);
 
         console.log(`Session Handle configurado para: ${sessionHandle}`);
-        
+
         this.#campos.header.sessionHandle = sessionHandle;
 
         return this;
+    }
 
+    /**
+     * Setar o campo Sender Context
+     * @param {Buffer} buff - Um buffer de 8 bytes   
+     */
+    setSenderContext(buff) {
+        if (buff == undefined) throw new Error(`É necessário informar um Buffer de 8 bytes ao campo Sender Context.`);
+        if (!(buff instanceof Buffer)) throw new Error(`O Sender Context precisa ser um Buffer de 8 bytes.`);
+        if (buff.length != 8) throw new Error(`O Sender Context precisa ter 8 bytes.`);
+
+        this.#campos.header.senderContext = buff;
     }
 
     /**

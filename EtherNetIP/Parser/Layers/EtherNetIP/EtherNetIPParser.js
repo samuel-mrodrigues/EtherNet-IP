@@ -18,6 +18,7 @@
 import { CommandSpecificDataRegisterSession } from "./CommandSpecificDatas/RegisterSession/RegisterSession.js";
 import { CommandSpecificDataListServices } from "./CommandSpecificDatas/ListServices/ListServices.js";
 import { CommandSpecificDataListIdentity } from "./CommandSpecificDatas/ListIdentity/ListIdentity.js";
+import { CommandSpecificDataSendRRData } from "./CommandSpecificDatas/SendRRData/SendRRData.js";
 
 /**
  * O Layer de EtherNet/IP (Industiral Protocol) contém as informações de encapsulamento do Header + Command Specific Data
@@ -316,6 +317,22 @@ export class EtherNetIPLayerParser {
     getAsListIdentity() {
         if (this.#campos.header.codigoComando == Comandos.ListIdentity.hex) {
             return new CommandSpecificDataListIdentity(this.#campos.commandSpecificData);
+        }
+    }
+
+    /**
+     * Se o comando no layer representa um comando de Send RR Data
+     */
+    isSendRRData() {
+        return this.#campos.header.codigoComando == Comandos.SendRRData.hex;
+    }
+
+    /**
+     * Se Command Specific Data representar um comando de Send RR Data, retorna uma instancia de SendRRData com as informações da solicitação
+     */
+    getAsSendRRData() {
+        if (this.#campos.header.codigoComando == Comandos.SendRRData.hex) {
+            return new CommandSpecificDataSendRRData(this.#campos.commandSpecificData);
         }
     }
 

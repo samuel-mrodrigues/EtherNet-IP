@@ -1,6 +1,9 @@
 import { CIPConnectionManagerBuilder } from "./Servicos/CIPConnectionManager/CIPConnectionManager.js";
+import { ClasseServiceBuilder } from "./Servicos/ClasseGenerica/ClasseGenerica.js";
 import { MultipleServicePacketServiceBuilder } from "./Servicos/MultipleServicePacket/MultipleServicePacket.js";
 import { SingleServicePacketServiceBuilder } from "./Servicos/SingleServicePacket/SingleServicePacket.js";
+
+import { Servicos, getService } from "../../../../../../Utils/CIPServices.js";
 
 /**
  * O layer CIP (Common Industrial Protocol) contém detalhes de uma solicitação CIP. Nesse caso, esse CIP Layer contém os dados encapsulados para mensagens unconnected via SendRRData
@@ -22,7 +25,7 @@ export class CIPSendRRDataBuilder {
         codigoServico: undefined,
         /**
          * O serviço a ser executado nessa instancia de builder CIP.
-         * @type {CIPConnectionManagerBuilder | SingleServicePacketServiceBuilder | MultipleServicePacketServiceBuilder}
+         * @type {CIPConnectionManagerBuilder | SingleServicePacketServiceBuilder | MultipleServicePacketServiceBuilder | ClasseServiceBuilder}
          */
         servico: undefined
     }
@@ -42,6 +45,17 @@ export class CIPSendRRDataBuilder {
         this.#campos.codigoServico = Servicos.UnconnectedMessageRequest.hex;
 
         this.#campos.servico = new CIPConnectionManagerBuilder();
+
+        return this.#campos.servico;
+    }
+
+    /**
+     * Buildar o layer CIP para corresponder ao serviço de Classe Generica
+     */
+    buildClasseGenerica() {
+        this.#campos.codigoServico = Servicos.ClasseGenerica.hex;
+
+        this.#campos.servico = new ClasseServiceBuilder();
 
         return this.#campos.servico;
     }
@@ -114,8 +128,7 @@ export class CIPSendRRDataBuilder {
                     return retornoBuffer;
                 }
 
-                // Adicionar os bytes que apontam pro Connection Manager e os bytes gerados pelo CIP Connection Manager que correspondem somente ao COmmand Specific Data em diante 
-                bufferCorpo = gerarBufferPath.sucesso.buffer
+                bufferCorpo = gerarBufferPath.sucesso.buffer;
                 break;
             }
             case Servicos.SingleServicePacket.hex: {
@@ -132,7 +145,7 @@ export class CIPSendRRDataBuilder {
                     return retornoBuffer;
                 }
 
-                bufferCorpo = gerarBufferPath.sucesso.buffer
+                bufferCorpo = gerarBufferPath.sucesso.buffer;
                 break;
             }
             case Servicos.MultipleServicePacket.hex: {
@@ -148,12 +161,29 @@ export class CIPSendRRDataBuilder {
                     return retornoBuffer;
                 }
 
-                bufferCorpo = gerarBufferPath.sucesso.buffer
+                bufferCorpo = gerarBufferPath.sucesso.buffer;
+                break;
+            }
+            case Servicos.ClasseGenerica.hex: {
+
+                /**
+                 * @type {ClasseServiceBuilder}
+                 */
+                const instanciaCIPClasse = this.#campos.servico;
+
+                let gerarBufferCIP = instanciaCIPClasse.criarBuffer();
+                if (!gerarBufferCIP.isSucesso) {
+                    retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Erro ao gerar o buffer da Classe Generica: ${gerarBufferCIP.erro.descricao}`;
+                    return retornoBuffer;
+                }
+
+                bufferCorpo = gerarBufferCIP.sucesso.buffer;
                 break;
             }
             default: {
 
-                break;
+                retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Código de serviço não reconhecido: ${this.#campos.codigoServico}`;
+                return retornoBuffer;
             }
         }
 
@@ -165,31 +195,5 @@ export class CIPSendRRDataBuilder {
         retornoBuffer.sucesso.buffer = bufferCompleto;
 
         return retornoBuffer;
-    }
-}
-
-/**
- * Retorna o serviço pelo código HEX se existir
- * @param {Number} hex 
- */
-export function getService(hex) {
-    return Object.values(Servicos).find(servico => servico.hex == hex);
-}
-
-/**
- * Serviços disponiveis para utilizar no contexto atual do layer CIP
- */
-export const Servicos = {
-    UnconnectedMessageRequest: {
-        hex: 0x52,
-        descricao: 'Unconnected Message Request'
-    },
-    MultipleServicePacket: {
-        hex: 0x0a,
-        descricao: 'Multiple Service Packet'
-    },
-    SingleServicePacket: {
-        hex: 0x4c,
-        descricao: 'Single Service Packet'
     }
 }

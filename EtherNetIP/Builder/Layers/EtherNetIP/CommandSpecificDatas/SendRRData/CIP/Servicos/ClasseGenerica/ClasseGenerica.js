@@ -1,5 +1,5 @@
 /**
- * O serviço Classe (0x52) é usado quando o serviço a ser solicitado no layer CIP atual aponta para uma classe e instancia. Por exemplo, solicitar o Connection Manager para envio de algum comando CIP.
+ * O serviço Classe é usado pra solicitar outros serviços em geral que não possuem um builder dedicado a eles. É algo mais manual.
  */
 export class ClasseServiceBuilder {
 
@@ -16,7 +16,12 @@ export class ClasseServiceBuilder {
          * Numero da instancia da classe solicitada.
          * @type {Buffer}
          */
-        instancia: undefined
+        instancia: undefined,
+        /**
+         * Código de serviço solicitado
+         * @type {Number}
+         */
+        codigoServico: undefined
     }
 
     /**
@@ -24,6 +29,7 @@ export class ClasseServiceBuilder {
      * @param {Object} parametros - Parametros para instanciar o serviço Classe com a classe e instancia desejados
      * @param {Buffer} parametros.classe - Classe que será solicitada (Exemplo: Connection Manager: 0x06)
      * @param {Buffer} parametros.instancia - Numero da instancia da classe solicitada (Exemplo: 0x01)
+     * @param {Number} parametros.servicoCode - Código do serviço solicitado
      */
     constructor(parametros) {
         if (parametros != undefined && typeof parametros == 'object') {
@@ -68,6 +74,18 @@ export class ClasseServiceBuilder {
     }
 
     /**
+     * Setar o código de serviço solicitado
+     * @param {Number} number - Numero do codigo de serviço, tipo 0x4c, 0x01, etc... dependo do serviço 
+     */
+    setCodigoServico(cod) {
+        if (cod == undefined) throw new Error('Código de serviço não pode ser nulo');
+
+        this.#campos.codigoServico = cod;
+
+        return this;
+    }
+
+    /**
      * Criar o buffer Request Path para o serviço Classe
      */
     criarBuffer() {
@@ -78,29 +96,39 @@ export class ClasseServiceBuilder {
                  * O Buffer gerado com as informações da classe e instancia solicitados
                  * @type {Buffer}
                  */
-                buffer: undefined,
-                /**
-                 * O tamanho em WORDs do Request Path
-                 */
-                tamanhoWords: undefined
+                buffer: undefined
             },
             erro: {
                 descricao: ''
             }
         }
 
-        const buff = Buffer.alloc(this.#campos.classe.length + this.#campos.instancia.length);
 
-        // Inserir os bytes da classe
-        this.#campos.classe.copy(buff, 0);
+        // O buffer do cabeçalho do serviço
+        const bufferCabecalho = Buffer.alloc(2);
 
-        // Inserir os bytes da instancia
-        this.#campos.instancia.copy(buff, this.#campos.classe.length);
+        // O 1 byte do cabeçalho é o código do service
+        bufferCabecalho.writeUInt8(this.#campos.codigoServico, 0);
+
+        // O 2 byte é o tamanho do Request Path abaixo em words
+        bufferCabecalho.writeUInt8(Math.ceil((this.#campos.instancia.length + this.#campos.classe.length) / 2), 1);
+
+        // O Request Path solicitado
+        const bufferRequestPath = Buffer.alloc(this.#campos.instancia.length + this.#campos.classe.length);
+
+        // Seta os bytes da classe e instancia no buffer
+        this.#campos.classe.copy(bufferRequestPath, 0);
+        this.#campos.instancia.copy(bufferRequestPath, this.#campos.classe.length);
+
+        let bufferCompleto = Buffer.concat([bufferCabecalho, bufferRequestPath]);
 
         retBuff.isSucesso = true;
-        retBuff.sucesso.buffer = buff;
-        retBuff.sucesso.tamanhoWords = buff.length / 2;
+        retBuff.sucesso.buffer = bufferCompleto;
 
         return retBuff;
     }
+}
+
+export const CodigosDeServicoClasses = {
+
 }

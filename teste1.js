@@ -35,7 +35,7 @@ function iniciar() {
                     let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
 
                     let singleService = connectionManagerRRData.getCIPMessage().buildSingleServicePacket();
-                    singleService.setString('TESTE2').setIncluirCIPGenericVazio(true);
+                    singleService.setAsGetAttribute({ nome: 'TESTE2' })
 
                     comandoRRData.gerarItemsEncapsulados();
 
@@ -101,19 +101,37 @@ function iniciar() {
                     let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
 
                     let instrucaoMultipleServices = connectionManagerRRData.getCIPMessage().buildMultipleServicePacket().setAsMessageRouter();
-                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({nome: 'TESTE2', datatype: DataTypesNumericos.DINT.codigo, valor: 55});
-                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({nome: 'Tempo_maquina_em_producao_G1', datatype: DataTypesNumericos.DINT.codigo, valor: 666});
-                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({nome: 'Tdasdsadas', datatype: DataTypesNumericos.DINT.codigo, valor: 99});
+                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({ nome: 'TESTE2', datatype: DataTypesNumericos.DINT.codigo, valor: 55 });
+                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({ nome: 'Tempo_maquina_em_producao_G1', datatype: DataTypesNumericos.DINT.codigo, valor: 666 });
+                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({ nome: 'Tdasdsadas', datatype: DataTypesNumericos.DINT.codigo, valor: 99 });
 
                     comandoRRData.gerarItemsEncapsulados();
 
                     let writeDados = novoComando.criarBuffer();
 
                     socketConexao.write(writeDados.sucesso.buffer);
-
                 }
 
-                testeMultiplePacketWrite();
+                let testeClasseGenerica = () => {
+                    let sessionHandlerId = novoComando.getSessionHandle();
+
+                    novoComando = new EtherNetIPLayerBuilder();
+                    novoComando.setSessionHandle(sessionHandlerId);
+
+                    let comandoRRData = novoComando.buildSendRRData();
+                    let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
+
+                    let listIdentity = connectionManagerRRData.getCIPMessage().buildClasseGenerica();
+                    listIdentity.setCodigoServico(0x01).setClasse(Buffer.from([0x20, 0x01])).setInstancia(Buffer.from([0x24, 0x01]));
+
+                    comandoRRData.gerarItemsEncapsulados();
+
+                    let writeDados = novoComando.criarBuffer();
+
+                    socketConexao.write(writeDados.sucesso.buffer);
+                }
+
+                testaSinglePacket();
 
             }, 2000);
         });
@@ -175,6 +193,27 @@ function iniciar() {
             console.log(a);
             return;
 
+        }
+
+        if (parserEIP.isSendRRData()) {
+
+            console.log(`RRData recebido!`);
+
+
+            let sendRRDataLayer = parserEIP.getAsSendRRData();
+
+            if (sendRRDataLayer.isServicoCIP()) {
+                console.log(`É um comando CIP!`);
+
+                let cipLayer = sendRRDataLayer.getAsServicoCIP();
+
+                if (cipLayer.isSingleServicePacket()) {
+                    console.log(`É um comando Single Service Packet!`);
+
+                    let singleServicePacket = cipLayer.getAsSingleServicePacket();
+
+                }
+            }
         }
     }
 

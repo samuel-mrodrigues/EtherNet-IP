@@ -49,6 +49,7 @@
 
 import { CIPSendRRDataBuilder } from "./CIP/CIP.js";
 
+import { ItemsCIP } from "../../../../../Utils/SendRRDataItemsTipos.js";
 /**
  * Montagem de um comando Command Specific Data para o tipo de comando SendRRData. O evento SendRRData só deve ser usado para mensagens UCMM(unconnected messages) segundo o manual.
  ** Pelo menos no caso do CIP, o Encapsulated packet tem que conter informações de items encapsulados nos layers mais pra frente.
@@ -269,27 +270,5 @@ export class CommandSpecificDataSendRRDataBuilder {
         retorBuff.sucesso.buffer = bufferFinal;
 
         return retorBuff;
-    }
-}
-
-/**
- * Tipos de items disponiveis para encapsular no items do SendRRData
- */
-export const ItemsCIP = {
-    Null: {
-        hex: 0x0000,
-        descricao: 'Null'
-    },
-    ConnectedMessage: {
-        hex: 0xA1,
-        descricao: 'Connected Message'
-    },
-    UnconnectedMessage: {
-        hex: 0x00B2,
-        descricao: 'Unconnected Message'
-    },
-    ConnectedTransportPacket: {
-        hex: 0x00B1,
-        descricao: 'Connected Transport Packet'
     }
 }
