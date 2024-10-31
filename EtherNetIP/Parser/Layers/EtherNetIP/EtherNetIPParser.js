@@ -30,12 +30,12 @@ export class EtherNetIPLayerParser {
 
     /**
      * Status do layer com as informações atuais
+     ** Esse campo indica se os bytes recebidos são validos e encaixam com o que é esperado. Mensagens de buffers retornadas com erro devido ao mau uso da classe ainda são consideradas válidas. Esse campo apenas indica se
+     houver algum erro ao dar parse no buffer.
      */
     #statusLayer = {
         /**
          * Se as informações do layer são válidas
-         ** No caso ao dar parse de um buffer, se o buffer é válido e contém todas as informações necessárias ele será valido
-         ** No caso ao montar um Layer EtherNet IP, é necessario ter informado todos os campos necessários para ser valido
          */
         isValido: false,
         /**
@@ -211,7 +211,7 @@ export class EtherNetIPLayerParser {
     isValido() {
         let status = {
             /**
-             * Se o layer é valido com todos os seus campos recebidos e seu status como sucesso
+             * Se o layer é valido com todos os seus campos recebidos
              */
             isValido: false,
             /**
@@ -228,13 +228,6 @@ export class EtherNetIPLayerParser {
             return status;
         }
 
-        // Se o layer estiver valido, verificar se o erro não for do campo status
-        if (this.#campos.header.statusCodigo != Status.Sucess.hex) {
-            status.erro.descricao = `Status diferente de sucesso 0x0. Codigo ${this.#campos.header.statusCodigo}: ${isStatusExiste(this.#campos.header.statusCodigo).descricao}`;
-            return status;
-        }
-
-        // Se o layer estiver joia e o status também, está tá tudo bem :D
         status.isValido = true;
         return status;
     }
@@ -334,6 +327,68 @@ export class EtherNetIPLayerParser {
         if (this.#campos.header.codigoComando == Comandos.SendRRData.hex) {
             return new CommandSpecificDataSendRRData(this.#campos.commandSpecificData);
         }
+    }
+
+    /**
+     * Retorna as informações do estado de sucesso
+     ** Lembre-se de checar antes de o layer EtherNet IP é valido
+     */
+    getStatus() {
+        let retornoStatus = {
+            codigo: this.#campos.header.statusCodigo,
+            mensagem: ''
+        }
+
+        let statusAtual = isStatusExiste(this.#campos.header.statusCodigo);
+        if (statusAtual != undefined) {
+            retornoStatus.mensagem = statusAtual.descricao;
+        } else {
+            retornoStatus.mensagem = 'Status desconhecido.';
+        }
+
+        return retornoStatus;
+    }
+
+    /**
+     * Retorna se esse layer EtherNet IP tem um status de sucesso 
+     */
+    isStatusSucesso() {
+        const retornoSucesso = {
+            /**
+             * Se o status é sucesso (0x0)
+             */
+            isSucesso: false,
+            /**
+             * Se nao for sucesso, contém os detalhes do status de erro recebido
+             */
+            erro: {
+                /**
+                 * Uma descrição detalhada do porque o status não é sucesso
+                 */
+                descricao: '',
+                /**
+                 * O status atual recebido
+                 */
+                statusAtual: {
+                    codigo: '',
+                    descricao: ''
+                }
+            }
+        }
+
+        let statusAtual = this.getStatus();
+        if (statusAtual.codigo == Status.Sucess.hex) {
+            retornoSucesso.isSucesso = true;
+        } else {
+            retornoSucesso.erro.descricao = `O status atual não é sucesso. Codigo ${statusAtual.codigo}: ${statusAtual.mensagem}`;
+
+            retornoSucesso.erro.statusAtual = {
+                codigo: statusAtual.codigo,
+                descricao: statusAtual.mensagem
+            }
+        }
+
+        return retornoSucesso;
     }
 
     /**

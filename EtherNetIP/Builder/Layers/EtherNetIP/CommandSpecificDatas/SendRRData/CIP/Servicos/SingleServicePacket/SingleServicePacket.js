@@ -45,27 +45,8 @@ export class SingleServicePacketServiceBuilder {
 
     /**
      * Instanciar o construtor do Single Service Packet
-     * @param {Object} parametros - Parametros do construtor para instanciar o SIngleServicePacket
-     * @param {Number} parametros.codigoServico - O código do serviço do Single Service Packet 
-     * @param {String} parametros.string - O nome do recurso que vai ser solicitado no dispositivo remoto 
      */
-    constructor(parametros) {
-        if (parametros != undefined && typeof parametros == 'object') {
-
-            if (parametros.string != undefined) this.setString(string);
-            if (parametros.codigoServico != undefined) this.setCodigoServico(codigoServico);
-        }
-
-        return this;
-    }
-
-    /**
-     * Definir a string do que vai ser solicitado no serviço
-     * @param {String} string - O nome do recurso. Caso seja uma tag, informar tipo "MINHA_TAG"
-     */
-    setString(string) {
-        this.#campos.atributoNome = string;
-
+    constructor() {
         return this;
     }
 
@@ -353,7 +334,7 @@ export const DataTypesNumericos = {
  * Contém o código do tipo de dado, a descrição e o tamanho em bytes
  */
 export const DataTypesStrings = {
-    
+
 }
 
 /**

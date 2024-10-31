@@ -81,6 +81,10 @@ export class CommandSpecificDataSendRRDataBuilder {
         CIPEncapsulado: undefined,
     }
 
+    #estado = {
+        isGerouItensEncapsulados: false
+    }
+
     /**
      * Instanciar o comando de SendRRData
      * @param {Object} parametros - Parametros para instanciar o SendRRData
@@ -151,6 +155,7 @@ export class CommandSpecificDataSendRRDataBuilder {
 
         this.#campos.itensEncapsulados.push(novoItem);
 
+        this.#estado.isGerouItensEncapsulados = false;
         return novoItem;
     }
 
@@ -160,6 +165,8 @@ export class CommandSpecificDataSendRRDataBuilder {
      */
     excluirItemEncapsulado(index) {
         this.#campos.itensEncapsulados.splice(index, 1);
+
+        this.#estado.isGerouItensEncapsulados = false;
     }
 
     /**
@@ -182,6 +189,8 @@ export class CommandSpecificDataSendRRDataBuilder {
      ** Segundo o manua, como SendRRData é um comando UCMM, o primeiro item deve endereço do tipo 'Null' e a data do tipo 'Unconnected Message' com o tamanho em bytes do payload CIP 
      */
     gerarItemsEncapsulados() {
+        this.#estado.isGerouItensEncapsulados = false;
+
         // Limpar os items atuais
         this.#campos.itensEncapsulados = [];
 
@@ -198,6 +207,8 @@ export class CommandSpecificDataSendRRDataBuilder {
             // Adicionar o item de dados Unconnected Message
             this.addItemEncapsulado(ItemsCIP.UnconnectedMessage.hex, gerarBufferCIP.sucesso.buffer.length, Buffer.alloc(0));
         }
+
+        this.#estado.isGerouItensEncapsulados = true;
         return this.#campos.itensEncapsulados;
     }
 
@@ -228,6 +239,11 @@ export class CommandSpecificDataSendRRDataBuilder {
             erro: {
                 descricao: ''
             }
+        }
+
+        // Preciso gerar os itens encapsulados na requisição antes
+        if (!this.#estado.isGerouItensEncapsulados) {
+            this.gerarItemsEncapsulados();
         }
 
         // O cabeçalho do Command Specific Data do SendRRData é composto por 8 bytes, que seriam o Interface Handle(4 bytes), Timeout(2 bytes) e Item Count(2 bytes)

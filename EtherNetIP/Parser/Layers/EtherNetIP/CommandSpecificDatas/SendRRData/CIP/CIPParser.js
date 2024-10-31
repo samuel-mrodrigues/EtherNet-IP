@@ -1,6 +1,7 @@
-import { Servicos, getService } from "../../../../../../Utils/CIPServices.js";
+import { Servicos } from "../../../../../../Utils/CIPServices.js";
 
-import { SingleServicePacketParser } from "./Servicos/SingleServicePacket.js"
+import { SingleServicePacketParser } from "./Servicos/SingleServicePacket.js";
+import { MultipleServicePacketParser } from "./Servicos/MultipleServicePacket.js";
 
 /**
  * O CIP Parser é responsavél por dar parse no layer CIP
@@ -9,6 +10,8 @@ export class CIPSendRRDataParser {
 
     /**
      * Detalhes se esse Layer CIP é valido
+     ** Esse campo indica se os bytes recebidos são validos e encaixam com o que é esperado. Mensagens de buffers retornadas com erro devido ao mau uso da classe ainda são consideradas válidas. Esse campo apenas indica se
+     houver algum erro ao dar parse no buffer.
      */
     #statusCIP = {
         /**
@@ -32,11 +35,6 @@ export class CIPSendRRDataParser {
          * @type {Number}
          */
         codigoServico: undefined,
-        /**
-         * Buffer do código de status recebido
-         * @type {Number}
-         */
-        status: undefined,
         /**
          * Buffer contendo os dados do serviço solicitado
          */
@@ -69,7 +67,6 @@ export class CIPSendRRDataParser {
         // O buffer precisa no minimo 3 bytes para ser um CIP válido
         if (buff.length < 3) {
             this.#statusCIP.isValido = false;
-
             this.#statusCIP.erro.descricao = 'O buffer não contém dados suficientes para ser um CIP válido';
 
             retornoBuffer.erro.descricao = this.#statusCIP.erro.descricao;
@@ -77,22 +74,38 @@ export class CIPSendRRDataParser {
         }
 
         // O primeiro byte contém o código do serviço solicitado no CIP
-        const codigoService = buff.readUInt8(0);
 
-        // Proximos 2 bytes contém o status principal da solicitação CIP
-        const statusService = buff.readUint16LE(1);
-
-        this.#campos.codigoServico = codigoService
-        this.#campos.status = statusService;
+        // Pego os 7 bits menos significativos que indicam o código do serviço, pois o 1 bit indica se é requisição(0) ou resposta(1)
+        const codigoService = buff.readUInt8(0) & 0x7F;
+        this.#campos.codigoServico = codigoService;
 
         // Pega todos os bytes restantes do buffer que contém os dados do serviço solicitado
-        const bufferServicoDados = buff.subarray(4);
+        const bufferServicoDados = buff.subarray(2);
 
         // Salvar os bytes do serviço recebido
         this.#campos.bufferPacketdata = bufferServicoDados;
 
         retornoBuffer.isSucesso = true;
         return retornoBuffer;
+    }
+
+    /**
+     * Retorna se esse CIP encapsulado é valido, ou seja todos os campos foram corretamente parseados do Buffer.
+     */
+    isValido() {
+        const retValido = {
+            isValido: false,
+            erro: {
+                descricao: ''
+            }
+        }
+
+        if (this.#statusCIP.isValido) {
+            retValido.isValido = true;
+        } else {
+            retValido.erro.descricao = this.#statusCIP.erro.descricao;
+        }
+        return retValido;
     }
 
     /**
@@ -107,15 +120,23 @@ export class CIPSendRRDataParser {
      */
     getAsSingleServicePacket() {
         if (this.isSingleServicePacket()) {
-            return new SingleServicePacketParser(this.#campos.status);
+            return new SingleServicePacketParser(this.#campos.bufferPacketdata);
         }
     }
-}
 
-export const CIPGeneralStatusCodes = {
-    Sucesso: {
-        hex: 0x00,
-        descricao: 'Sucesso'
-    },
-    
+    /**
+     * Retorna se o comando recebido corresponde ao serviço de Multiple Service Packet
+     */
+    isMultipleServicePacket() {
+        return this.#campos.codigoServico == Servicos.MultipleServicePacket.hex;
+    }
+
+    /**
+     * Retorna o serviço como MultipleServicePacket
+     */
+    getAsMultipleServicePacket() {
+        if (this.isMultipleServicePacket()) {
+            return new MultipleServicePacketParser(this.#campos.bufferPacketdata);
+        }
+    }
 }

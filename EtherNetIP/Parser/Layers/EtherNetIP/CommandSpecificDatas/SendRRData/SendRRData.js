@@ -31,6 +31,8 @@ export class CommandSpecificDataSendRRData {
 
     /**
      * Se o comando de SendRRData é valido ou não
+     ** Esse campo indica se os bytes recebidos são validos e encaixam com o que é esperado. Mensagens de buffers retornadas com erro devido ao mau uso da classe ainda são consideradas válidas. Esse campo apenas indica se
+     houver algum erro ao dar parse no buffer.
      */
     #statusComando = {
         isValido: false,
@@ -150,14 +152,15 @@ export class CommandSpecificDataSendRRData {
                 tipoId = buff.readUInt16LE(offsetItem);
             } catch (ex) {
                 this.#statusComando.isValido = false;
+
                 if (ex instanceof RangeError) {
                     this.#statusComando.erro.descricao = `Erro ao ler o tipo ID do item encapsulado no index ${indexItemEncapsulado} do buffer da posição ${offsetItem} até ${offsetItem + 2}, o buffer só tem ${buff.length} bytes`;
 
-                    retornoParse.erro.descricao = this.#statusComando.erro.descricao;
                 } else {
                     this.#statusComando.erro.descricao = `Erro desconhecido ao ler o tipo ID do item encapsulado no index ${indexItemEncapsulado} do buffer: ${ex.message}`
                 }
 
+                retornoParse.erro.descricao = this.#statusComando.erro.descricao;
                 return retornoParse;
             }
 
@@ -170,11 +173,11 @@ export class CommandSpecificDataSendRRData {
                 if (ex instanceof RangeError) {
                     this.#statusComando.erro.descricao = `Erro ao ler o tamanho em bytes do pacote encapsulado no layer pra frente no index ${indexItemEncapsulado} do buffer da posição ${offsetItem} até ${offsetItem + 2}, o buffer só tem ${buff.length} bytes`;
 
-                    retornoParse.erro.descricao = this.#statusComando.erro.descricao;
                 } else {
                     this.#statusComando.erro.descricao = `Erro desconhecido ao ler o tamanho em bytes do pacote encapsulado no layer pra frente no index ${indexItemEncapsulado} do buffer: ${ex.message}`
                 }
 
+                retornoParse.erro.descricao = this.#statusComando.erro.descricao;
                 return retornoParse;
             }
 
@@ -211,6 +214,13 @@ export class CommandSpecificDataSendRRData {
         // Se deu certo em dar parse, pode confirmar que é valido
         this.#statusComando.isValido = true;
         return retornoParse;
+    }
+
+    /**
+     * Retorna os itens que foram recebidos na encapsulação do comando SendRRData
+     */
+    getItensEncapsulados() {
+        return this.#campos.itemsEncapsulados;
     }
 
     /**

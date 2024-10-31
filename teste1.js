@@ -53,11 +53,11 @@ function iniciar() {
                     let comandoRRData = novoComando.buildSendRRData();
                     let connectionManagerRRData = comandoRRData.criarServicoCIP().buildCIPConnectionManager();
 
-                    let multipleService = connectionManagerRRData.getCIPMessage().buildMultipleServicePacket().setRequestPath(Buffer.from([0x20, 0x02]), Buffer.from([0x24, 0x01]));
-                    multipleService.addSingleServicePacket().servico.setString('BD_D1_MOTIVO_DIA1').setIncluirCIPGenericVazio(true);
-                    multipleService.addSingleServicePacket().servico.setString('TESTE').setIncluirCIPGenericVazio(true);
-                    multipleService.addSingleServicePacket().servico.setString('TESTE2').setIncluirCIPGenericVazio(true);
-                    // multipleService.addSingleServicePacket().servico.setString('CARALHA').setIncluirCIPGenericVazio(true);
+                    let multipleService = connectionManagerRRData.getCIPMessage().buildMultipleServicePacket().setAsMessageRouter();
+                    multipleService.addSingleServicePacket().servico.setAsGetAttribute({ nome: 'TESTE21' });
+                    multipleService.addSingleServicePacket().servico.setAsGetAttribute({ nome: 'TESTE13' });
+                    multipleService.addSingleServicePacket().servico.setAsGetAttribute({ nome: 'CUCUCU1' });
+                    multipleService.addSingleServicePacket().servico.setAsGetAttribute({ nome: 'TESTE2' });
 
                     comandoRRData.gerarItemsEncapsulados();
 
@@ -102,7 +102,7 @@ function iniciar() {
 
                     let instrucaoMultipleServices = connectionManagerRRData.getCIPMessage().buildMultipleServicePacket().setAsMessageRouter();
                     instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({ nome: 'TESTE2', datatype: DataTypesNumericos.DINT.codigo, valor: 55 });
-                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({ nome: 'Tempo_maquina_em_producao_G1', datatype: DataTypesNumericos.DINT.codigo, valor: 666 });
+                    instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({ nome: 'Tempo_maquina_em_producao_G12', datatype: DataTypesNumericos.DINT.codigo, valor: 666 });
                     instrucaoMultipleServices.addSingleServicePacket().servico.setAsSetAttribute({ nome: 'Tdasdsadas', datatype: DataTypesNumericos.DINT.codigo, valor: 99 });
 
                     comandoRRData.gerarItemsEncapsulados();
@@ -131,7 +131,7 @@ function iniciar() {
                     socketConexao.write(writeDados.sucesso.buffer);
                 }
 
-                testaSinglePacket();
+                testaMultiplePackets();
 
             }, 2000);
         });
@@ -212,6 +212,12 @@ function iniciar() {
 
                     let singleServicePacket = cipLayer.getAsSingleServicePacket();
 
+                }
+
+                if (cipLayer.isMultipleServicePacket()) {
+                    console.log(`É um comando Multiple Service Packet!`);
+
+                    let multipleServicePacket = cipLayer.getAsMultipleServicePacket();
                 }
             }
         }
