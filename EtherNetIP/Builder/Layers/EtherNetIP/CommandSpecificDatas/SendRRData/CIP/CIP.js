@@ -4,6 +4,7 @@ import { MultipleServicePacketServiceBuilder } from "./Servicos/MultipleServiceP
 import { SingleServicePacketServiceBuilder } from "./Servicos/SingleServicePacket/SingleServicePacket.js";
 
 import { Servicos, getService } from "../../../../../../Utils/CIPServices.js";
+import { TraceLog } from "../../../../../../Utils/TraceLog.js";
 
 /**
  * O layer CIP (Common Industrial Protocol) contém detalhes de uma solicitação CIP. Nesse caso, esse CIP Layer contém os dados encapsulados para mensagens unconnected via SendRRData
@@ -107,11 +108,21 @@ export class CIPSendRRDataBuilder {
             },
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O Tracer Log contém as etapas da montagem do Buffer
+             * @type {TraceLog}
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerBuffer = retornoBuffer.tracer.addTipo('Common Industrial Protocol');
+
+        tracerBuffer.add(`Iniciando a criação do Buffer CIP `)
 
         // Vou armazenar o conteudo dinamico do serviço CIP em um array
         let bufferCorpo = Buffer.alloc(0);
+
 
         switch (this.#campos.codigoServico) {
             case Servicos.UnconnectedMessageRequest.hex: {

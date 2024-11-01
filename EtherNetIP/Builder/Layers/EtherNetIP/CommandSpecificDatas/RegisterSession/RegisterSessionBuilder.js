@@ -2,6 +2,9 @@
  * O Register Session possui um Command Specific Data com dois campos
  */
 
+import { TraceLog } from "../../../../../Utils/TraceLog";
+import { hexDeBuffer } from "../../../../../Utils/Utils";
+
 /**
  * Command Specific Data
  *      Protocol version      (UINT, 2 bytes, unsigned)           // Requested protocol version shall be set to 1
@@ -119,11 +122,19 @@ export class CommandSpecificDataRegisterSessionBuilder {
             },
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O tracer log contém as etapas da geração do Buffer
+             * @type {TraceLog}
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerCriacao = retornoBuff.tracer.addTipo('RegisterSession');
 
         // O buffer tem que ser de 4 bytes. 2 Bytes do protocol version e + 2 bytes do flags de sessão
         const buff = Buffer.alloc(4);
+        tracerCriacao.add(`Criado um Buffer de 4 bytes para o Command Specific Data do RegisterSession`);
 
         // O payload do Command Specific Data do RegisterSession tem só dois campos que nunca mudam os valores
         if (parametros != undefined) {
@@ -137,10 +148,15 @@ export class CommandSpecificDataRegisterSessionBuilder {
         }
 
         buff.writeUInt16LE(this.#campos.protocolVersion, 0);
+        tracerCriacao.add(`Setando o Campo Protocol Version: ${this.#campos.protocolVersion} no offset 0`);
+
         buff.writeUInt16LE(this.#campos.optionFlags, 2);
+        tracerCriacao.add(`Setando o Campo Option Flags: ${this.#campos.optionFlags} no offset 2`);
 
         retornoBuff.isSucesso = true;
         retornoBuff.sucesso.buffer = buff;
+
+        tracerCriacao.add(`Buffer de 4 bytes do Command Specific Data do RegisterSession criado com sucesso: ${hexDeBuffer(buff)}`);
 
         return retornoBuff;
     }

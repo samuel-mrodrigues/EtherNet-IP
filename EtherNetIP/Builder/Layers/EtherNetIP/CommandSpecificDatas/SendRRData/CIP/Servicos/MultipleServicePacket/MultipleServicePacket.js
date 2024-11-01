@@ -41,6 +41,8 @@
 
  */
 
+import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../../../../Utils/Utils.js";
 import { SingleServicePacketServiceBuilder } from "../SingleServicePacket/SingleServicePacket.js";
 
 /**
@@ -107,32 +109,51 @@ export class MultipleServicePacketServiceBuilder {
             },
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Tracer que contém as etapas da geração do Buffer
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerBuffer = retBuff.tracer.addTipo('MultipleServicePacket');
 
         // O buffer de cabeçalho são 6 bytes pro serviço Multiple Service Packet
         const bufferCabecalho = Buffer.alloc(6);
+        tracerBuffer.add(`Criando o Buffer do cabeçalho do Multiple Service Packet de ${bufferCabecalho.length} bytes`);
 
         // 1 Byte é código do serviço(Nesse caso MultipleServicePacket)
         bufferCabecalho.writeUInt8(this.#codigoServico, 0);
+        tracerBuffer.add(`Setando o campo de código do serviço para ${this.#codigoServico} no offset 0`);
+
+        const tamanhoRequestPathWords = Math.ceil((this.#campos.requestPath.classe.length + this.#campos.requestPath.instancia.length) / 2);
 
         // 1 Byte pro Request Path Size em WORDs
-        bufferCabecalho.writeUInt8(Math.ceil((this.#campos.requestPath.classe.length + this.#campos.requestPath.instancia.length) / 2), 1);
+        bufferCabecalho.writeUInt8(tamanhoRequestPathWords, 1);
+        tracerBuffer.add(`Setando o campo de tamanho do Request Path em WORDs para ${tamanhoRequestPathWords} no offset 1`);
 
-        // Próximos 4 bytes definem a classe e instancia pro MessageRouter provavelmente
         // 2 bytes pra Classe
         this.#campos.requestPath.classe.copy(bufferCabecalho, 2);
 
+        tracerBuffer.add(`Setando o campo de Classe do Request Path para ${hexDeBuffer(this.#campos.requestPath.classe)} no offset 2`);
+
         // 2 bytes pra Instancia
         this.#campos.requestPath.instancia.copy(bufferCabecalho, 4);
+
+        tracerBuffer.add(`Setando o campo de Instancia do Request Path para ${hexDeBuffer(this.#campos.requestPath.instancia)} no offset 4`);
+
+        tracerBuffer.add(`Buffer do cabeçalho do Multiple Service Packet criado com sucesso: ${hexDeBuffer(bufferCabecalho)}`);
 
         // ---------------------
         // Criar um buffer onde vou adicionar o corpo do payload MultipleServicePacket, que é a lista de serviços que vão ser solicitadas ao servidor
         // Esse buffer só armazena inicialmente o total de itens + o offset de cada serviço localizado no Buffer
         const bufferCorpoServices = Buffer.alloc(2 + (this.#campos.servicesPackets.length * 2));
 
+        tracerBuffer.add(`Criando o Buffer do corpo do Multiple Service Packet de ${bufferCorpoServices.length} bytes`);
+
         // Escreve os primeiros 2 bytes da lista de serviços existentes
         bufferCorpoServices.writeUInt16LE(this.#campos.servicesPackets.length, 0);
+        tracerBuffer.add(`Setando o campo de quantidade de serviços solicitados para ${this.#campos.servicesPackets.length} no offset 0`);
 
         /**
          * @typedef BufferServicePacket
@@ -146,6 +167,7 @@ export class MultipleServicePacketServiceBuilder {
          */
         const bufferServicesPackets = []
 
+        tracerBuffer.add(`Iterando sobre os ${this.#campos.servicesPackets.length} Service Packets para gerar os buffers de cada um.`)
         /**
          * Iterar sobre cada serviço solicitado e preparar o buffer com eles
          */
@@ -156,8 +178,9 @@ export class MultipleServicePacketServiceBuilder {
 
             // Se ocorreu algum erro na geração do Buffer, retornar o erro
             if (!gerarBuffer.isSucesso) {
-                retBuff.erro.descricao = `[MultipleServicePacketService] Erro ao gerar o buffer do Single Service Packet ID ${servicoPacket.id} (${servicoPacket.servico.getStringPath()}): ${gerarBuffer.erro.descricao}`;
+                retBuff.erro.descricao = `Erro ao gerar o buffer do Single Service Packet ID ${servicoPacket.id} (${servicoPacket.servico.getStringPath()}): ${gerarBuffer.erro.descricao}`;
 
+                tracerBuffer.add(`Erro ao gerar o buffer do Single Service Packet ID ${servicoPacket.id} (${servicoPacket.servico.getStringPath()}): ${gerarBuffer.erro.descricao}`);
                 return retBuff;
             }
 
@@ -166,10 +189,14 @@ export class MultipleServicePacketServiceBuilder {
                 servicePacket: servicoPacket,
                 buff: gerarBuffer.sucesso.buffer
             });
+
+            tracerBuffer.add(`Buffer do Service Packet ID ${servicoPacket.id} (${servicoPacket.servico.getStringPath()}) gerado com sucesso: ${hexDeBuffer(gerarBuffer.sucesso.buffer)}`);
         }
 
         // Ok, após a geração dos Buffers de cada service packets, vou passar por cada um pra adicionar os offsets no cabeçalho
         let offsetListIndexAtual = 2;
+
+        tracerBuffer.add(`Iterando sobre os Service Packets para adicionar a lista de offsets no Buffer do corpo do Multiple Service Packet.`)
 
         // O offset de onde começa o primeiro byte do buffer de cada service packet.
         let offsetBufferAtual = 2 + (this.#campos.servicesPackets.length * 2);
@@ -181,6 +208,8 @@ export class MultipleServicePacketServiceBuilder {
             // Setar o offset de quando esse serviço inicia nos buffer
             bufferCorpoServices.writeUInt16LE(offsetBufferAtual, offsetListIndexAtual);
 
+            tracerBuffer.add(`Setando o campo de offset do Service Packet ID ${buffServicePacketAdicionar.servicePacket.id} (${buffServicePacketAdicionar.servicePacket.servico.getStringPath()}) para ${offsetBufferAtual} no offset ${offsetListIndexAtual}`);
+
             // Pular 2 bytes pro próximo offset service
             offsetListIndexAtual += 2;
 
@@ -190,6 +219,12 @@ export class MultipleServicePacketServiceBuilder {
 
         // Após definir o cabeçalho com os offsets de cada service packet, criar o buffer final com o cabeçalho e os service packets
         const bufferCabecalhoServices = Buffer.concat([bufferCorpoServices, ...bufferServicesPackets.map((buff) => buff.buff)]);
+
+        tracerBuffer.add(`O Buffer da lista de offsets de serviços gerados com sucesso: ${hexDeBuffer(bufferCorpoServices)}`);
+
+        tracerBuffer.add(`O Buffer dos serviços em sequencia foi gerado com sucesso também: ${hexDeBuffer(bufferServicesPackets)}`);
+
+        tracerBuffer.add(`Buffer da lista de offsets + cada servico contido no Buffer: ${hexDeBuffer(bufferCabecalhoServices)}`);
         // ------------------------------
 
         retBuff.isSucesso = true;
@@ -197,6 +232,7 @@ export class MultipleServicePacketServiceBuilder {
         // Retornar o buffer final do Cabeçalho CIP do tipo do Evento + o payload do MultipleServicePacket
         retBuff.sucesso.buffer = Buffer.concat([bufferCabecalho, bufferCabecalhoServices]);
 
+        tracerBuffer.add(`Buffer do cabeçalo do Service Multiple Packet + Payload do Multiple Packet gerado com sucesso: ${hexDeBuffer(retBuff.sucesso.buffer)}`);
         return retBuff;
     }
 

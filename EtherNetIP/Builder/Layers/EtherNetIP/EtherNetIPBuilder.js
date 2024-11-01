@@ -21,6 +21,8 @@ import { CommandSpecificDataRegisterSessionBuilder } from "./CommandSpecificData
 import { CommandSpecificDataListEntityBuilder } from "./CommandSpecificDatas/ListIdentity/ListIdentityBuilder.js";
 import { CommandSpecificDataListServicesBuilder } from "./CommandSpecificDatas/ListServices/ListServices.js";
 import { CommandSpecificDataSendRRDataBuilder } from "./CommandSpecificDatas/SendRRData/SendRRData.js";
+import { TraceLog } from "../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../Utils/Utils.js";
 
 /**
  * O Layer de EtherNet/IP (Industiral Protocol) contém as informações de encapsulamento do Header + Command Specific Data
@@ -92,10 +94,8 @@ export class EtherNetIPLayerBuilder {
         if (sessionHandle == undefined) throw new Error(`É necessário informar o Session Handle para o dispositivo reconhecer a solicitação.`);
         if (typeof sessionHandle != 'number') throw new Error(`O Session Handle precisa ser um número.`);
 
-        console.log(`Session Handle configurado para: ${sessionHandle}`);
-
         this.#campos.header.sessionHandle = sessionHandle;
-
+        this.log(`Session Handle configurado para ${sessionHandle}`);
         return this;
     }
 
@@ -108,6 +108,7 @@ export class EtherNetIPLayerBuilder {
         if (!(buff instanceof Buffer)) throw new Error(`O Sender Context precisa ser um Buffer de 8 bytes.`);
         if (buff.length != 8) throw new Error(`O Sender Context precisa ter 8 bytes.`);
 
+        this.log(`Sender Context configurado para ${buff.toString('hex')}`);
         this.#campos.header.senderContext = buff;
     }
 
@@ -131,6 +132,7 @@ export class EtherNetIPLayerBuilder {
         this.#campos.header.command = Comandos.RegisterSession.hex;
         this.#campos.classeCommandSpecificData = cmdRegisterSession;
 
+        this.log(`Buildando layer como Register Session`);
         return cmdRegisterSession;
     }
 
@@ -143,6 +145,7 @@ export class EtherNetIPLayerBuilder {
         this.#campos.header.command = Comandos.ListIdentity.hex;
         this.#campos.classeCommandSpecificData = cmdListaIdentidade;
 
+        this.log(`Buildando layer como List Identity`);
         return cmdListaIdentidade;
     }
 
@@ -155,6 +158,7 @@ export class EtherNetIPLayerBuilder {
         this.#campos.header.command = Comandos.ListServices.hex;
         this.#campos.classeCommandSpecificData = cmdListServices;
 
+        this.log(`Buildando layer como List Services`);
         return cmdListServices;
     }
 
@@ -167,6 +171,7 @@ export class EtherNetIPLayerBuilder {
         this.#campos.header.command = Comandos.SendRRData.hex;
         this.#campos.classeCommandSpecificData = cmdSendRRData;
 
+        this.log(`Buildando layer como Send RR Data`);
         return cmdSendRRData;
     }
 
@@ -187,43 +192,73 @@ export class EtherNetIPLayerBuilder {
                 buffer: undefined
             },
             erro: {
-                descricao: ''
+                descricao: '',
+                /**
+                 * O Trace Log contém os logs de execução do processo de criação do Buffer e onde ocorreu o erro detalhadamente
+                 */
+                tracelog: []
             }
         }
+
+        const tracer = new TraceLog();
+
+        // Pra anotar o log de cada passo
+        const tracerGeraBuffer = tracer.addTipo('EtherNetIP Builder');
+
+        const anotaLog = (msg) => {
+            this.log(msg);
+            tracerGeraBuffer.add(msg);
+        }
+
+        anotaLog(`Iniciando processo de criação do Buffer com as seguintes informações. Comando: ${this.#campos.header.command}, Session Handle: ${this.#campos.header.sessionHandle}, Sender Context: ${this.#campos.header.senderContext}(${hexDeBuffer(this.#campos.header.senderContext)})`);
 
         // Se não foi buildado o comando para ser enviado
         if (this.#campos.classeCommandSpecificData == undefined) {
             retornoBuff.erro.descricao = `É necessario buildar algum comando no layer antes de criar o Buffer.`;
+
+            anotaLog(`Não foi possível gerar o Buffer pois não foi buildado nenhum comando.`);
             return retornoBuff;
         }
 
         // Gravar no header de encapsulamento os dados do comando
         const buffCabecalho = Buffer.alloc(24);
+        anotaLog(`Alocando um Buffer de 24 bytes pro cabeçalho`)
 
         // Primeiros 2 bytes é o comando
         const setComandoCabecalho = (codigoCmd) => {
+            anotaLog(`Setando o comando no cabeçalho como ${codigoCmd} no offset 0`);
             buffCabecalho.writeUInt16LE(codigoCmd, 0);;
         }
 
         // Próximos 2 bytes é o tamanho em bytes do Command Specific Data que será enviado, nesse caso do buffer de Register Session
         let setTamanhoCommandSpecificData = (tamanho) => {
+            anotaLog(`Setando o tamanho do Command Specific Data como ${tamanho} no offset 2`);
             buffCabecalho.writeUInt16LE(tamanho, 2)
         }
 
         // Próximos 4 bytes é o Session Handler ID
         buffCabecalho.writeUInt32LE(this.#campos.header.sessionHandle, 4);
+        anotaLog(`Setando o Session Handler ID como ${this.#campos.header.sessionHandle} no offset 4`);
 
         // Próximos 4 bytes é o status da solicitação. Como é uma requisição, eu seto como sucesso
+        let statusSucesso = 0x000000;
         buffCabecalho.writeUInt32LE(0x000000, 8);
+        anotaLog(`Setando o Status como ${statusSucesso} no offset 8`);
 
         // Próximos 8 bytes é o contexto meu atual pro dispositivo remoto saber. Eu não sei oq é isso ainda então só seto pra 0
-        buffCabecalho.writeBigUInt64LE(BigInt(0x000000000000), 12)
+        // let contextoId = this.#campos.header.senderContext;
+        let contextoId = 0x0000000000000000;
+        buffCabecalho.writeBigUInt64LE(BigInt(contextoId), 12);
+        anotaLog(`Setando o Sender Context como ${contextoId}(${hexDeBuffer(contextoId)}) no offset 12`);
 
         // Próximos 4 bytes é o options que também ainda não sei oq é então deixo como 0 como ta no manual
-        buffCabecalho.writeUint32LE(0x000000, 20)
+        let optionsNaoSeiOqE = 0x000000;
+        buffCabecalho.writeUint32LE(optionsNaoSeiOqE, 20);
+        anotaLog(`Setando o Options como ${optionsNaoSeiOqE} (${hexDeBuffer(optionsNaoSeiOqE)}) no offset 20`);
 
         // Salvar o buffer pra uso posterior se precisar
         this.#buffers.header = buffCabecalho;
+        anotaLog(`Buffer do cabeçalho criado com sucesso: ${hexDeBuffer(buffCabecalho)}`);
 
         // Limpar o buffer do Command Specific Data
         this.#buffers.commandSpecificData = undefined;
@@ -235,6 +270,7 @@ export class EtherNetIPLayerBuilder {
              */
             case Comandos.RegisterSession.hex: {
 
+                anotaLog(`Criando o Buffer para Register Session`);
                 const bufferRegisterSession = this.#campos.classeCommandSpecificData.criarBuffer();
                 if (!bufferRegisterSession.isSucesso) {
                     retornoBuff.erro.descricao = `Erro ao gerar Buffer para o comando Register Session: ${bufferRegisterSession.erro.descricao}`;
@@ -335,6 +371,21 @@ export class EtherNetIPLayerBuilder {
         retornoBuff.sucesso.buffer = bufferEtherNetIP;
 
         return retornoBuff;
+    }
+
+    /**
+     * Anotar um log
+     * @param {String} msg 
+     */
+    log(msg) {
+        let conteudoMsg = '';
+        if (typeof msg == 'object') {
+            conteudoMsg = JSON.stringify(msg);
+        } else {
+            conteudoMsg = msg;
+        }
+
+        console.log(`[EtherNetIPLayerBuilder] ${conteudoMsg}`);
     }
 }
 

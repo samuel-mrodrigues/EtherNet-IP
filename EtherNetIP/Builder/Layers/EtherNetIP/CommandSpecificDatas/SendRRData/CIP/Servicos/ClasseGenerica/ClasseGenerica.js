@@ -1,3 +1,6 @@
+import { TraceLog } from "../../../../../../../../Utils/TraceLog";
+import { hexDeBuffer } from "../../../../../../../../Utils/Utils";
+
 /**
  * O serviço Classe é usado pra solicitar outros serviços em geral que não possuem um builder dedicado a eles. É algo mais manual.
  */
@@ -100,27 +103,47 @@ export class ClasseServiceBuilder {
             },
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O trace contendo o log da etapa de criação do buffer
+             * @type {TraceLog}
+             */
+            tracer: new TraceLog()
         }
 
+        const tracerBuffer = retBuff.tracer.addTipo('Classe Generica');
 
         // O buffer do cabeçalho do serviço
         const bufferCabecalho = Buffer.alloc(2);
 
+        tracerBuffer.addLog(`Criando buffer do cabeçalho do serviço de ${bufferCabecalho.length} bytes`);
+
         // O 1 byte do cabeçalho é o código do service
         bufferCabecalho.writeUInt8(this.#campos.codigoServico, 0);
+        tracerBuffer.add(`Setando o campo de código de serviço para ${hexDeBuffer(bufferCabecalho)} no offset 0`);
 
         // O 2 byte é o tamanho do Request Path abaixo em words
         bufferCabecalho.writeUInt8(Math.ceil((this.#campos.instancia.length + this.#campos.classe.length) / 2), 1);
+        tracerBuffer.add(`Setando o campo de tamanho do Request Path para ${hexDeBuffer(bufferCabecalho)} no offset 1`);
+
+        tracerBuffer.add(`Buffer do cabeçalho do serviço criado com sucesso: ${hexDeBuffer(bufferCabecalho)}`);
 
         // O Request Path solicitado
         const bufferRequestPath = Buffer.alloc(this.#campos.instancia.length + this.#campos.classe.length);
+        tracerBuffer.add(`Criando buffer do Request Path do serviço de ${bufferRequestPath.length} bytes`);
 
         // Seta os bytes da classe e instancia no buffer
         this.#campos.classe.copy(bufferRequestPath, 0);
+        tracerBuffer.add(`Setando o campo de classe para ${hexDeBuffer(bufferRequestPath)} no offset 0`);
+
         this.#campos.instancia.copy(bufferRequestPath, this.#campos.classe.length);
+        tracerBuffer.add(`Setando o campo de instancia para ${hexDeBuffer(this.#campos.instancia)} no offset ${this.#campos.classe.length}`);
+
+        tracerBuffer.add(`Buffer do Request Path do serviço criado com sucesso: ${hexDeBuffer(bufferRequestPath)}`);
 
         let bufferCompleto = Buffer.concat([bufferCabecalho, bufferRequestPath]);
+
+        tracerBuffer.add(`Buffer final do Cabeçalho + Request Path: ${hexDeBuffer(bufferCompleto)}`);
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = bufferCompleto;

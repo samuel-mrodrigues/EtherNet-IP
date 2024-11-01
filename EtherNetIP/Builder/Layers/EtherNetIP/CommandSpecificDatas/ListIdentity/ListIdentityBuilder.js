@@ -2,6 +2,8 @@
  * O Command Specific Data ListIdentity retorna as informações de identidade do dispositivo, como endereço IP, nome, fabricante, numero serial, etc...
  */
 
+import { TraceLog } from "../../../../../Utils/TraceLog.js";
+
 /**
  * Monta o Command Specific Data ListIdentity
  ** Até o momento, não precisa enviar nada no Command Specific Data para listar a identidade.
@@ -28,12 +30,19 @@ export class CommandSpecificDataListEntityBuilder {
                 buffer: undefined
             },
             erro: {
-                descricao: ''
-            }
+                descricao: '',
+            },
+            /**
+             * O tracer log contém as etapas da geração do Buffer
+             * @type {TraceLog}
+             */
+            tracer: TraceLog()
         }
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = Buffer.alloc(0);
+
+        retBuff.tracer.addTipo('ListIdentity').add(`Criado um Buffer com 0 bytes já que ListIdentity não necessita de enviar qualquer bytes pro Command Specific Data.`);
 
         return retBuff;
     }

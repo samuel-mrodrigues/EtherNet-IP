@@ -7,6 +7,8 @@
 // Próximos 1 bytes: Reservado para sempre ser 0x00
 // Próximos 2 bytes: ROute Path, destino do dispositivo CIP receber(eu acho, tipo se tiver mais de um dispositivo conectado ao dispositivo remoto, consigo referencia-lo)
 
+import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../../../../Utils/Utils.js";
 import { CIPSendRRDataBuilder } from "../../CIP.js";
 
 /**
@@ -220,66 +222,102 @@ export class CIPConnectionManagerBuilder {
             },
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O tracer de logs contém as etapas da geração do buffer.
+             * @type {TraceLog}
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerBuffer = retBuff.tracer.addTipo(`CIP ConnectionManagerBuilder`);
+
+        tracerBuffer.addLog(`Iniciando a criação do buffer do CIP Connection Manager`);
 
         // Alocar 6 bytes pro cabeçalho do serviço CIP Connection Manager
         const bufferCabecalho = Buffer.alloc(6);
 
+        tracerBuffer.add(`Criando um Buffer de ${bufferCabecalho.length} bytes para o cabeçalho do CIP Connection Manager`);
+
         // Primeiro 1 byte é oodigo do serviço
         bufferCabecalho.writeUInt8(this.codigoServico, 0);
+        tracerBuffer.add(`Setando o campo codigo de serviço para ${this.codigoServico} no offset 0`);
 
+        const tamanhoRequestPath = Math.ceil((this.#campos.requestPath.classe.length + this.#campos.requestPath.instancia.length) / 2)
         // Próximo 1 byte é o tamanho do Request Path(nesse caso é o Connection Manager)
-        bufferCabecalho.writeUInt8(Math.ceil((this.#campos.requestPath.classe.length + this.#campos.requestPath.instancia.length) / 2), 1);
+        bufferCabecalho.writeUInt8(tamanhoRequestPath, 1);
+        tracerBuffer.add(`Setando o tamanho do Request Path para ${tamanhoRequestPath} WORDs no offset 1`);
 
         // Próximos 4 bytes o Request Path do Connection Manager
         // 2 Bytes da Classe
         this.#campos.requestPath.classe.copy(bufferCabecalho, 2);
+        tracerBuffer.add(`Setando a classe do Request Path para ${hexDeBuffer(this.#campos.requestPath.classe)} no offset 2`);
 
         // 2 Bytes da Instancia
         this.#campos.requestPath.instancia.copy(bufferCabecalho, 4);
+        tracerBuffer.add(`Setando a instancia do Request Path para ${hexDeBuffer(this.#campos.requestPath.instancia)} no offset 4`);
 
+        tracerBuffer.add(`Buffer de cabeçalho gerado com sucesso: ${hexDeBuffer(bufferCabecalho)}`);
+
+        tracerBuffer.add(`Iniciando a criação do buffer do CIP Embedded Message Request`);
         // Gerar o Buffer do CIP Embedded Message Request
         let gerarBufferCIPEmbbed = this.#campos.CIPEmbeddedMessage.CIPServicoSolicitado.criarBuffer();
         if (!gerarBufferCIPEmbbed.isSucesso) {
             retBuff.erro.descricao = `[CIPConnectionManagerBuilder] Erro ao gerar o buffer do CIP Embedded Message Request: ${gerarBufferCIPEmbbed.erro.descricao}`;
+
+            tracerBuffer.add(`Erro ao gerar o buffer do CIP Embedded Message Request: ${gerarBufferCIPEmbbed.erro.descricao}`);
             return retBuff;
         }
 
         let offsetPayloadCIPEmbedded = gerarBufferCIPEmbbed.sucesso.buffer.length;
+        tracerBuffer.add(`Buffer do CIP Embedded Message Request gerado com sucesso: ${hexDeBuffer(gerarBufferCIPEmbbed.sucesso.buffer)}, total de ${offsetPayloadCIPEmbedded} bytes`);
 
         // Criar um buffer com o tamanho necessario pra caber o cabeaçho do CIP Connection Manager e o CIP Embedded Message Request
         // 1 Byte pro Priority, 1 Bytes pro timeout, 2 Bytes pro tamanho do CIP Embedded Message Request, x Bytes é o CIP Embedded Message Request, 1 Byte pro tamanho do Route Path, 1 Byte reservado, 2 Bytes pro Route Path
         // Então fica 1 + 1 + 2 + x + 1 + 1 + 2 = 8 + x bytes necessarios
         const buff = Buffer.alloc(8 + gerarBufferCIPEmbbed.sucesso.buffer.length);
+        tracerBuffer.add(`Criando um Buffer de ${buff.length} bytes para o CIP Connection Manager`);
 
         // O 1 byte é o Priority/Timeout Kicks
         buff.writeUInt8(this.#campos.priority, 0);
+        tracerBuffer.add(`Setando o campo Priority para ${this.#campos.priority} no offset 0`);
 
         // Proximo 1 byte é o timeout ticks
         buff.writeUInt8(this.#campos.timeoutTicks, 1);
+        tracerBuffer.add(`Setando o campo Timeout Ticks para ${this.#campos.timeoutTicks} no offset 1`);
 
         // Proximos 2 bytes é o tamanho do CIP Embedded Message Request do serviço solicitado
         buff.writeUInt16LE(offsetPayloadCIPEmbedded, 2);
+        tracerBuffer.add(`Setando o tamanho do CIP Embedded Message Request para ${offsetPayloadCIPEmbedded} bytes no offset 2`);
 
         // Adicionar os bytes do buffer do CIP Embedded Message Request ao buffer principal
         gerarBufferCIPEmbbed.sucesso.buffer.copy(buff, 4);
+        tracerBuffer.add(`Copiando o buffer do CIP Embedded Message Request gerado ao Buffer principal no offset 4`);
 
         // Route path é compost por (3 bits indicam o tipo do segmento, 4 bit é se é um link address extendido, 4 bits finais é a porta)
         let routePath = (this.#campos.routePath.tipoSegmento << 5) | (this.#campos.routePath.isLinkAddressExtendido << 4) | this.#campos.routePath.porta;
 
+        let tamanhoWordsRoutePath = Math.ceil((Buffer.from([routePath]).length) / 2)
         // Os próximos 1 bytes é o total de WORDs contido no Route Path
-        buff.writeUInt8(Math.ceil((Buffer.from([routePath]).length) / 2), 4 + offsetPayloadCIPEmbedded);
+        buff.writeUInt8(tamanhoWordsRoutePath, 4 + offsetPayloadCIPEmbedded);
+        tracerBuffer.add(`Setando o tamanho do Route Path para ${tamanhoWordsRoutePath} WORDs no offset ${4 + offsetPayloadCIPEmbedded}`);
 
         // O próximo 1 byte é o reservado que sempre é 0x00 segundo o manual
         buff.writeUInt8(this.#campos.reserved, 5 + offsetPayloadCIPEmbedded);
+        tracerBuffer.add(`Setando o campo reservado para ${this.#campos.reserved} no offset ${5 + offsetPayloadCIPEmbedded}`);
 
         // Os próximos 2 bytes são o Route Path que sempre é Port (0x01): Backplane, Address (0x00)(no meu caso simples por enquanto é)
         buff.writeUInt8(routePath, 6 + offsetPayloadCIPEmbedded);
+        tracerBuffer.add(`Setando o campo Route Path para ${routePath} no offset ${6 + offsetPayloadCIPEmbedded}`);
+
         buff.writeUInt8(this.#campos.routePath.linkAddress, 7 + offsetPayloadCIPEmbedded);
+        tracerBuffer.add(`Setando o campo Link Address para ${this.#campos.routePath.linkAddress} no offset ${7 + offsetPayloadCIPEmbedded}`);
+        tracerBuffer.add(`Buffer do CIP Connection Manager gerado com sucesso: ${hexDeBuffer(buff)}, total de ${buff.length} bytes`);
 
         // Adicionar também o cabeçalho do CIP Connection Manager (Service, Request Path Size e Request Path) ao buffer final
         const bufferFinal = Buffer.concat([bufferCabecalho, buff]);
+
+        tracerBuffer.add(`Buffer completo do cabeçalho + CIP Embedded Message Request gerado com sucesso: ${hexDeBuffer(bufferFinal)}, total de ${bufferFinal.length} bytes`);
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = bufferFinal;

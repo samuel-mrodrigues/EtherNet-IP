@@ -1,3 +1,6 @@
+import { TraceLog } from "../../../../../../../../Utils/TraceLog";
+import { hexDeBuffer } from "../../../../../../../../Utils/Utils";
+
 /**
  * O Single Service Packet é usado para solicitar o Request Path para um recurso especifico, como uma tag do dispositivo remoto com a descrição.
  */
@@ -130,17 +133,32 @@ export class SingleServicePacketServiceBuilder {
             },
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O log de rastreamento de execução da geração do Buffer
+             * @type {TraceLog}
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerLogBuff = retBuff.tracer.addTipo(`SingleServicePacket`);
 
         // O cabeçalho do serviço Single Service Packet
         const bufferCabecalho = Buffer.alloc(2);
 
+        tracerLogBuff.add(`Criando o cabeçalho do serviço Single Service Packet de ${bufferCabecalho.length} bytes`);
+
         // O 1 byte do cabeçalho é o tipo do service
         bufferCabecalho.writeUInt8(this.#campos.codigoServico, 0);
+        tracerLogBuff.add(`Setando campo de código de serviço para ${getSingleServiceCode(this.#campos.codigoServico).descricao} no offset 0`);
+
+        let tamanhoDoRequestPath = Math.ceil((this.#campos.atributoNome.length + 2) / 2);
 
         // O 2 byte é o tamanho do Request Path abaixo em words
-        bufferCabecalho.writeUInt8(Math.ceil((this.#campos.atributoNome.length + 2) / 2), 1);
+        bufferCabecalho.writeUInt8(tamanhoDoRequestPath, 1);
+        tracerLogBuff.add(`Setando campo de tamanho do Request Path para ${tamanhoDoRequestPath} words no offset 1`);
+
+        tracerLogBuff.add(`Cabeçalho do serviço Single Service Packet gerado com sucesso: ${hexDeBuffer(bufferCabecalho)}`);
 
         // Alocar um buffer pra caber o +1 byte do data type e o +1 Request Path 
         let valorParaAlocarBytes = 2 + Buffer.from(this.#campos.atributoNome).length;
@@ -149,14 +167,21 @@ export class SingleServicePacketServiceBuilder {
 
         const buffRequestPath = Buffer.alloc(valorParaAlocarBytes);
 
+        tracerLogBuff.add(`Criando o buffer do Request Path de ${buffRequestPath.length} bytes`);
+
         // Definir o 1 byte como o data type String
         buffRequestPath.writeUInt8(0x91, 0);  // ANSI Extended Symbol Segment (0x91)
+        tracerLogBuff.add(`Setando campo de data type para 0x91 no offset 0`);
 
         // O próximo 1 byte é o tamanho em bytes do simbolo solicitado
         buffRequestPath.writeUInt8(Buffer.from(this.#campos.atributoNome).length, 1);
+        tracerLogBuff.add(`Setando campo de tamanho do simbolo solicitado para ${Buffer.from(this.#campos.atributoNome).length} (${this.#campos.atributoNome}) bytes no offset 1`);
 
         // Os próximos bytes são o Request Path da string solicitada
         Buffer.from(this.#campos.atributoNome).copy(buffRequestPath, 2);
+        tracerLogBuff.add(`Setando o campo do Request Path do simbolo solicitado ${hexDeBuffer(Buffer.from(this.#campos.atributoNome))} (${this.#campos.atributoNome}) para o buffer no offset 2`);
+
+        tracerLogBuff.add(`Buffer do Request Path gerado com sucesso: ${hexDeBuffer(buffRequestPath)}`);
 
         // Dependendo do serviço solicitado, o CIP GenericData contém informações adicionais necessarias para executar alguma operação.
         // Gerlamente pro serviço Get, é só alocado um Buffer vazio 0x0100, e pro Set, é alocado um buffer com informações da tag que vai ser alterada, como o seu tipo, tamanho e novo valor;
@@ -168,6 +193,8 @@ export class SingleServicePacketServiceBuilder {
         // Se for um Get, eu appendo um array de 2 bytes vazio ao CIP Generic Data
         if (this.isGetAttribute()) {
             bufferCIPGenericData = Buffer.from([0x01, 0x00]);
+
+            tracerLogBuff.add(`Criando o buffer do CIP Generic Data para o serviço Get Attribute de ${bufferCIPGenericData.length} bytes: ${hexDeBuffer(bufferCIPGenericData)}`);
         } else {
             // Se for um Set, eu preciso atribuir o valor que vai ser setado
 
@@ -183,64 +210,81 @@ export class SingleServicePacketServiceBuilder {
                     this.#campos.setAttribute.valor = 0;
                 }
 
+                tracerLogBuff.add(`O valor informado para o Set Attribute é ${this.#campos.setAttribute.valor}`);
+
                 // Aloco 4 bytes, 2 pro tipo do Data Type e 2 pro tamanho;
                 const bufferTipoDataType = Buffer.alloc(4);
 
+                tracerLogBuff.add(`Criando o buffer de Data Type com ${bufferTipoDataType.length} bytes`);
+
                 // Escrevo os primeiros 2 bytes pro tipo do Data Type
                 bufferTipoDataType.writeUInt16LE(dataTypeDefinido.codigo, 0);
+                tracerLogBuff.add(`Setando campo de Data Type para ${dataTypeDefinido.codigo} (${dataTypeDefinido.descricao}) no offset 0`);
 
                 // Os próximos 2 bytes, por algum motivo que não sei, se Data Type for um numero, o tamanho é 1
                 bufferTipoDataType.writeUInt16LE(1, 2);
+                tracerLogBuff.add(`Setando campo de tamanho do Data Type para 1 no offset 2`);
+
+                tracerLogBuff.add(`Buffer do Data Type gerado com sucesso: ${hexDeBuffer(bufferTipoDataType)}`);
 
                 // Alocar o tamanho do buffer necessario pra alocar o novo valor
                 const bufferDataNovoValor = Buffer.alloc(dataTypeDefinido.tamanho);
+                tracerLogBuff.add(`Criando o buffer para armazenar o novo valor com ${bufferDataNovoValor.length} bytes`);
 
                 // Como o buffer é dependedo do tipo, verifico o tamanho e uso o Write apropriado
                 try {
                     switch (dataTypeDefinido.tamanho) {
                         case 1: {
+                            tracerLogBuff.add(`Setando o 1 byte do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
                             bufferDataNovoValor.writeUInt8(this.#campos.setAttribute.valor, 0);
                             break;
                         }
                         case 2: {
+                            tracerLogBuff.add(`Setando o 2 bytes do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
                             bufferDataNovoValor.writeUInt16LE(this.#campos.setAttribute.valor, 0);
                             break;
                         }
                         case 4: {
+                            tracerLogBuff.add(`Setando o 4 bytes do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
                             bufferDataNovoValor.writeUInt32LE(this.#campos.setAttribute.valor, 0);
                             break;
                         }
                         case 8: {
+                            tracerLogBuff.add(`Setando o 8 bytes do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
                             bufferDataNovoValor.writeBigInt64LE(this.#campos.setAttribute.valor, 0);
                             break;
                         }
                     }
                 } catch (ex) {
-                    retBuff.erro.descricao = `Erro ao escrever o Write no Buffer de ${dataTypeDefinido.tamanho} Bytes: ${ex.message}`;
+                    retBuff.erro.descricao = `Erro ao escrever o Write no Buffer de '${dataTypeDefinido.tamanho}' Bytes: ${ex.message}`;
+
+                    tracerLogBuff.add(`Ocorreu um erro no try catch ao escrever no buffer do novo valor. Mensagem: ${ex.message}`);
                     return retBuff;
                 }
 
+                tracerLogBuff.add(`Buffer do novo valor gerado com sucesso: ${hexDeBuffer(bufferDataNovoValor)}`);
+
                 // Concatenar o buffer do tipo do Data Type com o buffer do novo valor
-
                 bufferCIPGenericData = Buffer.concat([bufferTipoDataType, bufferDataNovoValor]);
-            }
 
-            // Com a informação do tipo do valor que vou escrever em mãos, escrever no buffer CIPGenericData
+                tracerLogBuff.add(`Buffer do CIP Generic Data(Buffers de Data Type + Novo valor) gerado com sucesso: ${hexDeBuffer(bufferCIPGenericData)}`);
+            } else {
+                // Fazer a tratativa pra escrever em tipos diferentes além de numeros depois, por enquanto recusar
+
+                retBuff.erro.descricao = `Data Type informado '${dataTypeDefinido.descricao}' não é suportado ainda`;
+                tracerLogBuff.add(`Informado um Data Type não suportado: ${dataTypeDefinido.descricao}. A criação será cancelada e o erro será retornado`);
+                return retBuff;
+            }
         }
 
+        tracerLogBuff.add(`Buffer do CIP Generic Data gerado com sucesso: ${hexDeBuffer(bufferCIPGenericData)}`);
+
         const buffFinal = Buffer.concat([bufferCabecalho, buffRequestPath, bufferCIPGenericData]);
+        
+        tracerLogBuff.add(`Buffer completo(Cabeçalho + Request Path + CIP Generic Data) gerado com sucesso: ${hexDeBuffer(buffFinal)}`);
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = buffFinal;
-
-        // if (this.#opcoes.isIncluirCIPClassGeneric) {
-        //     // Eu concateno o buffer com um byte de preenchimento que seria o CIP Class Generic
-        //     retBuff.sucesso.buffer = Buffer.concat([bufferCabecalho, buff, Buffer.from([0x01, 0x00])]);
-        // } else {
-        //     // Se não precisar incluir o CIP Class Generic
-        //     retBuff.sucesso.buffer = Buffer.concat([bufferCabecalho, buff]);
-        // }
-
         return retBuff;
     }
 

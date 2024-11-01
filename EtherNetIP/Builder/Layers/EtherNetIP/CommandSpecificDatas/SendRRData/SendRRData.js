@@ -50,6 +50,8 @@
 import { CIPSendRRDataBuilder } from "./CIP/CIP.js";
 
 import { ItemsCIP } from "../../../../../Utils/SendRRDataItemsTipos.js";
+import { TraceLog } from "../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../Utils/Utils.js";
 /**
  * Montagem de um comando Command Specific Data para o tipo de comando SendRRData. O evento SendRRData só deve ser usado para mensagens UCMM(unconnected messages) segundo o manual.
  ** Pelo menos no caso do CIP, o Encapsulated packet tem que conter informações de items encapsulados nos layers mais pra frente.
@@ -238,23 +240,40 @@ export class CommandSpecificDataSendRRDataBuilder {
             },
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Tracer que contém as etapas de geração do Buffer
+             * @type {TraceLog}
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerGeraBuff = retorBuff.tracer.addTipo('SendRRData');
+
+        tracerGeraBuff.add(`Iniciando geração do buffer do Command Specific Data do SendRRData`);
 
         // Preciso gerar os itens encapsulados na requisição antes
         if (!this.#estado.isGerouItensEncapsulados) {
+            tracerGeraBuff.add(`Os itens para encapsulamento não foram gerados, gerando automaticamente...`);
             this.gerarItemsEncapsulados();
         }
 
         // O cabeçalho do Command Specific Data do SendRRData é composto por 8 bytes, que seriam o Interface Handle(4 bytes), Timeout(2 bytes) e Item Count(2 bytes)
         const buffCabecalhoItensEncapsulados = Buffer.alloc(8);
+        tracerGeraBuff.add(`Gerando o Buffer de cabeçalho do Command Specific Data do SendRRData de ${buffCabecalhoItensEncapsulados.length} bytes`);
 
         buffCabecalhoItensEncapsulados.writeUInt32LE(this.#campos.interfaceHandle, 0);
+        tracerGeraBuff.add(`Setando o Interface Handle para ${this.#campos.interfaceHandle} no offset 0`);
         buffCabecalhoItensEncapsulados.writeUInt16LE(this.#campos.timeoutRequisicao, 4);
+        tracerGeraBuff.add(`Setando o Timeout para ${this.#campos.timeoutRequisicao} no offset 4`);
         buffCabecalhoItensEncapsulados.writeUInt16LE(this.#campos.itensEncapsulados.length, 6);
+        tracerGeraBuff.add(`Setando o Item Count para ${this.#campos.itensEncapsulados.length} no offset 6`);
+
+        tracerGeraBuff.add(`Buffer de cabeçalho concluido: ${hexDeBuffer(buffCabecalhoItensEncapsulados)}`);
 
         // Então o proximo passo é gerar o buffer do encapsulated packet, que é o que descreve os items encapsulados
         const bufferItensEncapsulado = Buffer.alloc(this.#campos.itensEncapsulados.length * 4);
+        tracerGeraBuff.add(`Gerando o Buffer de itens encapsulados do Command Specific Data do SendRRData de ${bufferItensEncapsulado.length} bytes`);
         let offsetItemEncapsulado = 0;
 
         for (const itemEncapsulado of this.#campos.itensEncapsulados) {
@@ -262,8 +281,11 @@ export class CommandSpecificDataSendRRDataBuilder {
             // 2 Primeiros bytes é o ID do tipo do item encapsulado
             bufferItensEncapsulado.writeUInt16LE(itemEncapsulado.tipoID, offsetItemEncapsulado);
 
+            tracerGeraBuff.add(`Setando o Item ID ${itemEncapsulado.tipoID} no offset ${offsetItemEncapsulado}`);
+
             // 2 Proximos bytes é o tamanho que ele ocupa nos layers seguintes
             bufferItensEncapsulado.writeUInt16LE(itemEncapsulado.tamanhoBytes, offsetItemEncapsulado + 2);
+            tracerGeraBuff.add(`Setando o Tamanho do Item ${itemEncapsulado.tamanhoBytes} no offset ${offsetItemEncapsulado + 2}`);
 
             // Pular pro proximo item
             offsetItemEncapsulado += 4;
@@ -271,6 +293,10 @@ export class CommandSpecificDataSendRRDataBuilder {
 
         // Juntar o cabeçalho com o buffer encapsulado
         let bufferCompletoItensEncapsulados = Buffer.concat([buffCabecalhoItensEncapsulados, bufferItensEncapsulado]);
+
+        tracerGeraBuff.add(`Buffer de itens encapsulados concluido: ${hexDeBuffer(bufferCompletoItensEncapsulados)}`);
+
+        tracerGeraBuff.add(`Junção do Buffer de cabeçalho + itens encapsulados: ${hexDeBuffer(bufferCompletoItensEncapsulados)} ${bufferCompletoItensEncapsulados.length} bytes`);
 
         // Agora que tenho o buffer inicial, concateno com o buffer do CIP encapsulado
         let geraBufferCIP = this.#campos.CIPEncapsulado.criarBuffer();
