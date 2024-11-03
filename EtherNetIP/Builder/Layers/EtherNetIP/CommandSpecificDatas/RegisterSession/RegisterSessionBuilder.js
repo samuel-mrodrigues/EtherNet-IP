@@ -2,8 +2,8 @@
  * O Register Session possui um Command Specific Data com dois campos
  */
 
-import { TraceLog } from "../../../../../Utils/TraceLog";
-import { hexDeBuffer } from "../../../../../Utils/Utils";
+import { TraceLog } from "../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../Utils/Utils.js";
 
 /**
  * Command Specific Data
@@ -157,6 +157,8 @@ export class CommandSpecificDataRegisterSessionBuilder {
         retornoBuff.sucesso.buffer = buff;
 
         tracerCriacao.add(`Buffer de 4 bytes do Command Specific Data do RegisterSession criado com sucesso: ${hexDeBuffer(buff)}`);
+
+        tracerCriacao.add(`Builder RegisterSession finalizado`);
 
         return retornoBuff;
     }

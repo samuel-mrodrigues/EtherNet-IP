@@ -3,6 +3,8 @@
  */
 
 import { CIPGeneralStatusCodes, getStatusCode } from "../../../../../../../Utils/CIPRespondeCodes.js";
+import { TraceLog } from "../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../../Utils/Utils.js";
 import { CIPSendRRDataParser } from "../CIPParser.js";
 
 /**
@@ -25,7 +27,12 @@ export class MultipleServicePacketParser {
          */
         erro: {
             descricao: ''
-        }
+        },
+        /**
+         * Um tracer para acomapanhar o processo de parse do Buffer
+         * @type {TraceLog}
+         */
+        tracer: undefined
     }
 
     #campos = {
@@ -64,23 +71,37 @@ export class MultipleServicePacketParser {
             isSucesso: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Um tracer para acomapanhar o processo de parse do Buffer
+             */
+            tracer: new TraceLog()
         }
+
+        this.#statusMultipleService.tracer = retBuff.tracer;
+
+        const tracerBuffer = retBuff.tracer.addTipo(`MultipleServicePacket Parser`);
+        tracerBuffer.add(`Iniciando parser do MultipleServicePacket com o Buffer: ${hexDeBuffer(tracerBuffer)}, ${buff.length} bytes`);
 
         // Verificar se não foi informado um Buffer que não corresponde ao necessario pra obter as informações dos serviços contidos no pacote
         if (buff.length < 4) {
             this.#statusMultipleService.isValido = false;
-            this.#statusMultipleService.erro.descricao = 'O buffer Multiple Service Packet informado não contém os 4 bytes minimos que informam o código de status e quantidade de serviços.';
+            this.#statusMultipleService.erro.descricao = `O buffer Multiple Service Packet informado contém apenas ${buff.length} bytes, mas é esperado no minimo 4 bytes que informam o código de status e quantidade de serviços.`;
 
             retBuff.erro.descricao = this.#statusMultipleService.erro.descricao;
+
+            tracerBuffer.add(`O Buffer era esperado ter ao menos 4 bytes, mas tem apenas ${buff.length} bytes. Não é possivel continuar.`);
             return retBuff;
         }
 
         // Primeiro 1 bytes é o codigo de status geral do Multiple Service Packet. Os serviços inclusos podem ter ocorrido algum erro.
         this.#campos.codigoStatus = buff.readUInt8(0);
+        let tipoDeStatusCodigo = getStatusCode(this.#campos.codigoStatus);
+        tracerBuffer.add(`Lendo 1 byte do código de status do Multiple Service Packet no offset 0: ${this.#campos.codigoStatus} (${numeroToHex(this.#campos.codigoStatus, 1)}) - ${tipoDeStatusCodigo != undefined ? `${tipoDeStatusCodigo.descricao}` : 'Desconhecido'}`);
 
         // Os próximos 2 bytes são a quantidade de serviços recebidos no pacote
         const quantidadeServicos = buff.readUInt16LE(2);
+        tracerBuffer.add(`Lendo 2 bytes da quantidade de serviços no Multiple Service Packet no offset 2: ${quantidadeServicos} (${numeroToHex(quantidadeServicos, 2)})`);
 
         // Se o buffer for menor que a quantidade aonde consta o ultimo offset dos offset dos serviços, é pq ta faltando algo
         if (buff.length < 4 + (quantidadeServicos * 2) + 2) {
@@ -88,13 +109,15 @@ export class MultipleServicePacketParser {
             this.#statusMultipleService.erro.descricao = `O buffer Multiple Service Packet contém apenas ${buff.length}, mas era esperado pelo menos ${4 + (quantidadeServicos * 2) + 2} bytes que contem as informações basicas dos serviços contidos na solicitação.`;
 
             retBuff.erro.descricao = this.#statusMultipleService.erro.descricao;
-            return retBuff;
 
+            tracerBuffer.add(`O Buffer com os dados dos serviços era esperado ter ao menos ${4 + (quantidadeServicos * 2) + 2} bytes, mas tem apenas ${buff.length} bytes. Não é possivel continuar.`);
+            return retBuff;
         }
 
         // O array de offsets indica a partir de qual offset do buffer cada serviço recebido na resposta começa
         // Começa dos 4 bytes em diante + até a quantidade de serviço * 2, pois cada serviço tem 2 bytes indicando onde o offset começa
         const bufferOffsetsServicos = buff.subarray(4, 4 + (quantidadeServicos * 2));
+        tracerBuffer.add(`Prosseguindo para analisar o Buffer que indica o offset de cada serviço no Buffer: ${hexDeBuffer(bufferOffsetsServicos)}, ${bufferOffsetsServicos.length} bytes`);
 
         /**
          * @typedef OffsetServices
@@ -112,11 +135,15 @@ export class MultipleServicePacketParser {
         for (let offsetServiceIndex = 0; offsetServiceIndex < bufferOffsetsServicos.length; offsetServiceIndex += 2) {
 
             let numeroOffset = bufferOffsetsServicos.readUInt16LE(offsetServiceIndex);
+            tracerBuffer.add(`Lendo 2 bytes do offset do serviço #${offsetServices.length + 1} no Buffer posição ${offsetServiceIndex}: ${numeroOffset} (${numeroToHex(numeroOffset, 2)})`);
+
             offsetServices.push({
                 serviceNumero: offsetServices.length + 1,
                 offset: numeroOffset
             })
         }
+
+        tracerBuffer.add(`A leitura dos Offsets de cada serviço foi concluída. Foram encontrados ${offsetServices.length} serviços.`);
 
         // Se o buffer não contém os Services Packet logo após os offsets de cada service, é pq ta faltando informações no pacote
         if (buff.length < 4 + bufferOffsetsServicos.length) {
@@ -124,11 +151,15 @@ export class MultipleServicePacketParser {
             this.#statusMultipleService.erro.descricao = `O buffer Multiple Service Packet não contém os bytes suficientes para os serviços contidos na solicitação, o buffer recebido contém ${buff.length} bytes, mas era esperado pelo menos ${4 + bufferOffsetsServicos.length} bytes.`;
 
             retBuff.erro.descricao = this.#statusMultipleService.erro.descricao;
+
+            tracerBuffer.add(`O Buffer com os dados de cada serviço era esperado ter ao menos ${4 + bufferOffsetsServicos.length} bytes, mas tem apenas ${buff.length} bytes. Não é possivel continuar.`);
             return retBuff;
         }
 
         // O buffer de service packets contem os buffers de cada serviço recebido na resposta.
         const bufferServicePackets = buff.subarray(4 + bufferOffsetsServicos.length);
+
+        tracerBuffer.add(`Prosseguindo para analisar o Buffer que contém os dados de cada serviço: ${hexDeBuffer(bufferServicePackets)}, ${bufferServicePackets.length} bytes`);
 
         let offsetServiceInicio = 0;
         // Ok, agora que coletei as posições dos servicos no Buffer, vou cortar os pedacinhos dos serviços e armazenar eles
@@ -152,6 +183,8 @@ export class MultipleServicePacketParser {
                 this.#statusMultipleService.erro.descricao = `O serviço id #${offsetServiceAtual.serviceNumero} não contém os bytes suficientes no Buffer de Service Packets. Esperado os bytes de ${offsetServiceInicio} até ${offsetServiceFim}, porém o Buffer vai somente até ${bufferServicePacket.length} bytes.`;
 
                 retBuff.erro.descricao = this.#statusMultipleService.erro.descricao;
+
+                tracerBuffer.add(`O Buffer com os dados do serviço id #${offsetServiceAtual.serviceNumero} era esperado ter ao menos ${offsetServiceFim} bytes, mas tem apenas ${bufferServicePacket.length} bytes. Não é possivel continuar.`);
                 return retBuff;
             }
 
@@ -160,36 +193,54 @@ export class MultipleServicePacketParser {
             // Armazenar o buffer do Packet
             offsetServiceAtual.bufferService = bufferServicePacket;
 
+            tracerBuffer.add(`Serviço id #${offsetServiceAtual.serviceNumero} foi encontrado no Buffer de Service Packets. Offset de ${offsetServiceInicio} até ${offsetServiceFim}: ${hexDeBuffer(bufferServicePacket)}, ${bufferServicePacket.length} bytes`);
+
             // Salvar o offset de inicio a partir do atual
             offsetServiceInicio = offsetServiceFim;
         }
 
+        tracerBuffer.add(`Todos os serviços foram encontrados e cortados do Buffer de Service Packets. Foram encontrados ${offsetServices.length} serviços.`);
         let novosServicosCIP = []
+
+        tracerBuffer.add(`Iniciando o parse de cada serviço encontrado no Buffer de Service Packets.`);
 
         // Após efetuar toda a validação, eu tenho em mãos todos os Buffers dos serviços enviados pelo dispositivo.
         for (const serviceDados of offsetServices) {
 
             // O Parser do CIP é responsável por dar parse no buffer do serviço que esta encapsulado no formato CIP
             const construirBufferCIP = new CIPSendRRDataParser();
+
+            tracerBuffer.add(`Iniciando o parse do serviço ID #${serviceDados.serviceNumero}: ${hexDeBuffer(serviceDados.bufferService)}, ${serviceDados.bufferService.length} bytes`);
             const retornoParser = construirBufferCIP.parseBuffer(serviceDados.bufferService);
 
+            retBuff.tracer.appendTraceLog(retornoParser.tracer);
+
+            // Não vou continuar se deu erro, todos os serviços precisam pelo menos terem tido sucesso no parse. Independente se o serviço solicitado retornou um status != de sucesso
             if (!retornoParser.isSucesso) {
                 this.#statusMultipleService.isValido = false;
                 this.#statusMultipleService.erro.descricao = `Erro ao dar parse no serviço ID #${serviceDados.serviceNumero} (offset ${serviceDados.offset}): ${retornoParser.erro.descricao}`;
 
                 retBuff.erro.descricao = this.#statusMultipleService.erro.descricao;
+
+                tracerBuffer.add(`Erro ao dar parse no serviço ID #${serviceDados.serviceNumero} (offset ${serviceDados.offset}): ${retornoParser.erro.descricao}`);
                 return retBuff;
             }
+
+            tracerBuffer.add(`Serviço ID #${serviceDados.serviceNumero} foi parseado com sucesso!`);
 
             // Adicionar os serviços parseados na lista de serviços
             novosServicosCIP.push(construirBufferCIP);
         }
+
+        tracerBuffer.add(`Todos os ${novosServicosCIP.length} serviços foram parseados com sucesso!`);
 
         // Se tudo estiver correto, confirmar que é valido
         this.#statusMultipleService.isValido = true;
         this.#statusMultipleService.erro.descricao = '';
 
         this.#campos.servicesPacketsParseados = novosServicosCIP;
+
+        tracerBuffer.add(`Parser de Multiple Service Packet finalizado.`);
 
         retBuff.isSucesso = true;
         return retBuff;
@@ -200,11 +251,20 @@ export class MultipleServicePacketParser {
      */
     isValido() {
         const retValido = {
+            /**
+             * Se esse MultipleServicePacket é valido
+             */
             isValido: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Detalhes do processo de parse do Multiple Service Packet
+             */
+            tracer: undefined
         }
+
+        retValido.tracer = this.#statusMultipleService.tracer;
 
         if (this.#statusMultipleService.isValido) {
             retValido.isValido = true

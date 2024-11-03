@@ -71,20 +71,10 @@ export class CommandSpecificDataSendRRDataBuilder {
          */
         timeoutRequisicao: undefined,
         /**
-         * Os itens que vão ser encapsulados no protocolo
-         ** Observação que primeiramente precisa ser o item de conexão, e depois os itens de dados
-         * @type {ItemEncapsulamento[]}
-         */
-        itensEncapsulados: [],
-        /**
          * O pacote CIP contém absolutamente tudo que vai ser solicitado no comando SendRRData via protocolo CIP.
          * @type {CIPSendRRDataBuilder}
          */
         CIPEncapsulado: undefined,
-    }
-
-    #estado = {
-        isGerouItensEncapsulados: false
     }
 
     /**
@@ -121,8 +111,8 @@ export class CommandSpecificDataSendRRDataBuilder {
      * @param {Number} interfaceHandle 
      */
     setInterfaceHandle(interfaceHandle) {
-        if (interfaceHandle == undefined) throw new Error(`[CommandSpecificDataSendRRDataBuilder] O Interface Handle não pode ser indefinido`);
-        if (typeof interfaceHandle != 'number') throw new Error(`[CommandSpecificDataSendRRDataBuilder] O Interface Handle deve ser um número`);
+        if (interfaceHandle == undefined) throw new Error(`O Interface Handle não pode ser indefinido`);
+        if (typeof interfaceHandle != 'number') throw new Error(`O Interface Handle deve ser um número`);
 
         this.#campos.interfaceHandle = interfaceHandle;
     }
@@ -132,87 +122,12 @@ export class CommandSpecificDataSendRRDataBuilder {
      * @param {Number} tempoSegs - Tempo em segundos
      */
     setTimeout(tempoSegs) {
-        if (tempoSegs == undefined) throw new Error(`[CommandSpecificDataSendRRDataBuilder] O timeout da requisição não pode ser indefinido`);
-        if (typeof tempoSegs != 'number') throw new Error(`[CommandSpecificDataSendRRDataBuilder] O timeout da requisição deve ser um número`);
+        if (tempoSegs == undefined) throw new Error(`O timeout da requisição não pode ser indefinido`);
+        if (typeof tempoSegs != 'number') throw new Error(`O timeout da requisição deve ser um número`);
 
         this.#campos.timeoutRequisicao = tempoSegs;
     }
 
-    /**
-     * Adicionar um item de encapsulamento
-     * @param {Number} codigoItem - Codigo do item de encapsulamento(veja a lista de items disponiveis em ItemsCIP)
-     * @param {Number} tamanho - Tamanho em bytes do item encapsulado
-     * @param {Buffer} dados - Dados do item encapsulado se necessario
-     */
-    addItemEncapsulado(codigoItem, tamanho, dados) {
-        /**
-         * @type {ItemEncapsulamento}
-         */
-        let novoItem = {
-            ordemId: this.#campos.itensEncapsulados.length,
-            tipoID: codigoItem,
-            tamanhoBytes: tamanho,
-            dados: dados
-        }
-
-        this.#campos.itensEncapsulados.push(novoItem);
-
-        this.#estado.isGerouItensEncapsulados = false;
-        return novoItem;
-    }
-
-    /**
-     * Remove um item dos items para encapsular
-     * @param {Number} index 
-     */
-    excluirItemEncapsulado(index) {
-        this.#campos.itensEncapsulados.splice(index, 1);
-
-        this.#estado.isGerouItensEncapsulados = false;
-    }
-
-    /**
-     * Retorna um item encapsulado pelo ID de sequencia
-     * @param {Number} id 
-     */
-    getItemEncapsulado(id) {
-        return this.#campos.itensEncapsulados.find(item => item.ordemId == id);
-    }
-
-    /**
-     * Retorna todos os items encapsulados
-     */
-    getItemsEncapsulados() {
-        return this.#campos.itensEncapsulados;
-    }
-
-    /**
-     * Gerar os items encapsulados automaticamente utilizando o CIP Encapsulado atual
-     ** Segundo o manua, como SendRRData é um comando UCMM, o primeiro item deve endereço do tipo 'Null' e a data do tipo 'Unconnected Message' com o tamanho em bytes do payload CIP 
-     */
-    gerarItemsEncapsulados() {
-        this.#estado.isGerouItensEncapsulados = false;
-
-        // Limpar os items atuais
-        this.#campos.itensEncapsulados = [];
-
-        // Adicionar o item de endereço Null
-        this.addItemEncapsulado(ItemsCIP.Null.hex, 0, Buffer.alloc(0));
-
-        if (this.#campos.CIPEncapsulado != undefined) {
-            let gerarBufferCIP = this.#campos.CIPEncapsulado.criarBuffer();
-
-            if (!gerarBufferCIP.isSucesso) {
-                throw new Error(`[CommandSpecificDataSendRRDataBuilder] Não é possível adicionar o item Unconnected Message: Erro ao gerar o buffer do CIP Encapsulado: ${gerarBufferCIP.erro.descricao}`);
-            }
-
-            // Adicionar o item de dados Unconnected Message
-            this.addItemEncapsulado(ItemsCIP.UnconnectedMessage.hex, gerarBufferCIP.sucesso.buffer.length, Buffer.alloc(0));
-        }
-
-        this.#estado.isGerouItensEncapsulados = true;
-        return this.#campos.itensEncapsulados;
-    }
 
     /**
      * Instanciar o serviço CIP para o SendRRData e solicitar algum serviço ao dispositivo remoto
@@ -248,48 +163,76 @@ export class CommandSpecificDataSendRRDataBuilder {
             tracer: new TraceLog()
         }
 
-        const tracerGeraBuff = retorBuff.tracer.addTipo('SendRRData');
+        const tracerGeraBuff = retorBuff.tracer.addTipo('SendRRDataBuilder');
 
         tracerGeraBuff.add(`Iniciando geração do buffer do Command Specific Data do SendRRData`);
-
-        // Preciso gerar os itens encapsulados na requisição antes
-        if (!this.#estado.isGerouItensEncapsulados) {
-            tracerGeraBuff.add(`Os itens para encapsulamento não foram gerados, gerando automaticamente...`);
-            this.gerarItemsEncapsulados();
-        }
 
         // O cabeçalho do Command Specific Data do SendRRData é composto por 8 bytes, que seriam o Interface Handle(4 bytes), Timeout(2 bytes) e Item Count(2 bytes)
         const buffCabecalhoItensEncapsulados = Buffer.alloc(8);
         tracerGeraBuff.add(`Gerando o Buffer de cabeçalho do Command Specific Data do SendRRData de ${buffCabecalhoItensEncapsulados.length} bytes`);
 
+        // Os próximos 4 bytes são o Interface Handle
         buffCabecalhoItensEncapsulados.writeUInt32LE(this.#campos.interfaceHandle, 0);
         tracerGeraBuff.add(`Setando o Interface Handle para ${this.#campos.interfaceHandle} no offset 0`);
+
+        // Os próximos 2 bytes são o Timeout
         buffCabecalhoItensEncapsulados.writeUInt16LE(this.#campos.timeoutRequisicao, 4);
         tracerGeraBuff.add(`Setando o Timeout para ${this.#campos.timeoutRequisicao} no offset 4`);
-        buffCabecalhoItensEncapsulados.writeUInt16LE(this.#campos.itensEncapsulados.length, 6);
-        tracerGeraBuff.add(`Setando o Item Count para ${this.#campos.itensEncapsulados.length} no offset 6`);
+
+        // Os próximos 2 bytes são o Item Count
+        buffCabecalhoItensEncapsulados.writeUInt16LE(2, 6);
+        tracerGeraBuff.add(`Setando o Item Count para 2 no offset 6`);
 
         tracerGeraBuff.add(`Buffer de cabeçalho concluido: ${hexDeBuffer(buffCabecalhoItensEncapsulados)}`);
+        tracerGeraBuff.add(`Gerando o buffer do CIP encapsulado`);
 
-        // Então o proximo passo é gerar o buffer do encapsulated packet, que é o que descreve os items encapsulados
-        const bufferItensEncapsulado = Buffer.alloc(this.#campos.itensEncapsulados.length * 4);
-        tracerGeraBuff.add(`Gerando o Buffer de itens encapsulados do Command Specific Data do SendRRData de ${bufferItensEncapsulado.length} bytes`);
-        let offsetItemEncapsulado = 0;
+        // Gerar o Buffer do CIP Encapsulado a solicitação configurada
+        let geraBufferCIP = this.#campos.CIPEncapsulado.criarBuffer();
 
-        for (const itemEncapsulado of this.#campos.itensEncapsulados) {
+        retorBuff.tracer.appendTraceLog(geraBufferCIP.tracer);
+        
+        if (!geraBufferCIP.isSucesso) {
+            retorBuff.erro.descricao = `Erro ao gerar o buffer do CIP Encapsulado: ${geraBufferCIP.erro.descricao}`;
 
-            // 2 Primeiros bytes é o ID do tipo do item encapsulado
-            bufferItensEncapsulado.writeUInt16LE(itemEncapsulado.tipoID, offsetItemEncapsulado);
-
-            tracerGeraBuff.add(`Setando o Item ID ${itemEncapsulado.tipoID} no offset ${offsetItemEncapsulado}`);
-
-            // 2 Proximos bytes é o tamanho que ele ocupa nos layers seguintes
-            bufferItensEncapsulado.writeUInt16LE(itemEncapsulado.tamanhoBytes, offsetItemEncapsulado + 2);
-            tracerGeraBuff.add(`Setando o Tamanho do Item ${itemEncapsulado.tamanhoBytes} no offset ${offsetItemEncapsulado + 2}`);
-
-            // Pular pro proximo item
-            offsetItemEncapsulado += 4;
+            tracerGeraBuff.add(`O CIP Encapsulado retornou que não conseguiu gerar o seu Buffer. Motivo: ${geraBufferCIP.erro.descricao}`)
+            return retorBuff;
         }
+
+        //------------- Itens contidos no Encapsulated Packet -------------
+        // Para o comando SendRRData que é usado somente para mensagens UCMM, o primeiro item deve ser o endereço Null e o segundo item deve ser o Unconnected Message
+        // Então o proximo passo é gerar o buffer do encapsulated packet, que é o que descreve os items encapsulados
+        const bufferItensEncapsulado = Buffer.alloc(2 * 4);
+        tracerGeraBuff.add(`Gerando o Buffer de itens encapsulados do Command Specific Data do SendRRData de ${bufferItensEncapsulado.length} bytes`);
+
+        // Os primeiros 2 bytes é o codigo do endereço Null
+        bufferItensEncapsulado.writeUInt16LE(ItemsCIP.Null.hex, 0);
+
+        // Próximos 2 bytes é o tamanho em bytes do endereço Null, por padrão é 0
+        bufferItensEncapsulado.writeUInt16LE(0, 2);
+
+        // O próximo item é o Unconnected Message
+        bufferItensEncapsulado.writeUInt16LE(ItemsCIP.UnconnectedMessage.hex, 4);
+
+        // Próximos 2 bytes é o tamanho em bytes do Unconnected Message, que seria o tamanho em bytes do CIP Embedded gerado
+        bufferItensEncapsulado.writeUInt16LE(geraBufferCIP.sucesso.buffer.length, 6);
+        // ----------------------------------------------------------------
+
+        // let offsetItemEncapsulado = 0;
+
+        // for (const itemEncapsulado of this.#campos.itensEncapsulados) {
+
+        //     // 2 Primeiros bytes é o ID do tipo do item encapsulado
+        //     bufferItensEncapsulado.writeUInt16LE(itemEncapsulado.tipoID, offsetItemEncapsulado);
+
+        //     tracerGeraBuff.add(`Setando o Item ID ${itemEncapsulado.tipoID} no offset ${offsetItemEncapsulado}`);
+
+        //     // 2 Proximos bytes é o tamanho que ele ocupa nos layers seguintes
+        //     bufferItensEncapsulado.writeUInt16LE(itemEncapsulado.tamanhoBytes, offsetItemEncapsulado + 2);
+        //     tracerGeraBuff.add(`Setando o Tamanho do Item ${itemEncapsulado.tamanhoBytes} no offset ${offsetItemEncapsulado + 2}`);
+
+        //     // Pular pro proximo item
+        //     offsetItemEncapsulado += 4;
+        // }
 
         // Juntar o cabeçalho com o buffer encapsulado
         let bufferCompletoItensEncapsulados = Buffer.concat([buffCabecalhoItensEncapsulados, bufferItensEncapsulado]);
@@ -298,15 +241,12 @@ export class CommandSpecificDataSendRRDataBuilder {
 
         tracerGeraBuff.add(`Junção do Buffer de cabeçalho + itens encapsulados: ${hexDeBuffer(bufferCompletoItensEncapsulados)} ${bufferCompletoItensEncapsulados.length} bytes`);
 
-        // Agora que tenho o buffer inicial, concateno com o buffer do CIP encapsulado
-        let geraBufferCIP = this.#campos.CIPEncapsulado.criarBuffer();
-        if (!geraBufferCIP.isSucesso) {
-            retorBuff.erro.descricao = `[CommandSpecificDataSendRRDataBuilder] Erro ao gerar o buffer do CIP Encapsulado: ${geraBufferCIP.erro.descricao}`;
-            return retorBuff;
-        }
-
         // Juntar o buffer dos itens encapsulados com o buffer do CIP encapsulado
         let bufferFinal = Buffer.concat([bufferCompletoItensEncapsulados, geraBufferCIP.sucesso.buffer]);
+
+        tracerGeraBuff.add(`Junção do Buffer de itens encapsulados + CIP Encapsulado: ${hexDeBuffer(bufferFinal)} ${bufferFinal.length} bytes`);
+
+        tracerGeraBuff.add(`Builder SendRRData finalizado.`);
 
         retorBuff.isSucesso = true;
         retorBuff.sucesso.buffer = bufferFinal;

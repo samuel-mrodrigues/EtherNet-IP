@@ -116,7 +116,9 @@ export class MultipleServicePacketServiceBuilder {
             tracer: new TraceLog()
         }
 
-        const tracerBuffer = retBuff.tracer.addTipo('MultipleServicePacket');
+        const tracerBuffer = retBuff.tracer.addTipo('MultipleServicePacketBuilder');
+
+        tracerBuffer.add(`Iniciando a criação do Buffer do Multiple Service Packet.`);
 
         // O buffer de cabeçalho são 6 bytes pro serviço Multiple Service Packet
         const bufferCabecalho = Buffer.alloc(6);
@@ -176,6 +178,8 @@ export class MultipleServicePacketServiceBuilder {
             // Solicitar a geração do Buffer desse Single Service Packet
             const gerarBuffer = servicoPacket.servico.criarBuffer();
 
+            retBuff.tracer.appendTraceLog(gerarBuffer.tracer);
+            
             // Se ocorreu algum erro na geração do Buffer, retornar o erro
             if (!gerarBuffer.isSucesso) {
                 retBuff.erro.descricao = `Erro ao gerar o buffer do Single Service Packet ID ${servicoPacket.id} (${servicoPacket.servico.getStringPath()}): ${gerarBuffer.erro.descricao}`;
@@ -233,6 +237,8 @@ export class MultipleServicePacketServiceBuilder {
         retBuff.sucesso.buffer = Buffer.concat([bufferCabecalho, bufferCabecalhoServices]);
 
         tracerBuffer.add(`Buffer do cabeçalo do Service Multiple Packet + Payload do Multiple Packet gerado com sucesso: ${hexDeBuffer(retBuff.sucesso.buffer)}`);
+
+        tracerBuffer.add(`Builder MultipleServicePacket finalizado.`);
         return retBuff;
     }
 

@@ -36,13 +36,13 @@ export class CommandSpecificDataListEntityBuilder {
              * O tracer log contém as etapas da geração do Buffer
              * @type {TraceLog}
              */
-            tracer: TraceLog()
+            tracer: new TraceLog()
         }
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = Buffer.alloc(0);
 
-        retBuff.tracer.addTipo('ListIdentity').add(`Criado um Buffer com 0 bytes já que ListIdentity não necessita de enviar qualquer bytes pro Command Specific Data.`);
+        retBuff.tracer.addTipo('ListIdentity').add(`Criado um Buffer com 0 bytes já que ListIdentity não necessita de enviar qualquer bytes pro Command Specific Data.`).add(`Builder ListEntity finalizado.`);
 
         return retBuff;
     }

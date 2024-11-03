@@ -2,6 +2,9 @@
  * O Register Session possui um Command Specific Data com dois campos
  */
 
+import { TraceLog } from "../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../Utils/Utils.js";
+
 /**
  * Command Specific Data
  *      Protocol version      (UINT, 2 bytes, unsigned)           // Requested protocol version shall be set to 1
@@ -29,7 +32,12 @@ export class CommandSpecificDataRegisterSession {
          */
         erro: {
             descricao: ''
-        }
+        },
+        /**
+         * O tracer contém o passo a passo do parser do buffer
+         * @type {TraceLog}
+         */
+        tracer: undefined
     }
 
     /**
@@ -63,25 +71,41 @@ export class CommandSpecificDataRegisterSession {
             isSucesso: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O tracer contém o passo a passo do parser do buffer
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerBuffer = retornoParse.tracer.addTipo(`RegisterSession Parser`);
+        this.#statusComando.tracer = retornoParse.tracer;
+
+        tracerBuffer.add(`Iniciando parser de RegisterSession com o Buffer: ${hexDeBuffer(buff)}, ${buff.length} bytes`);
 
         // O buffer deve ter no minimo 4 bytes.
         if (buff.length < 4) {
+            this.#statusComando.isValido = false;
             this.#statusComando.erro.descricao = 'Buffer não contém os 4 bytes minimos do Command Specific Data do comando Register Session';
 
             retornoParse.erro.descricao = this.#statusComando.erro.descricao;
+
+            tracerBuffer.add(`O Buffer recebido não tem os 4 bytes minimos para o Command Specific Data do comando Register Session`);
             return retornoParse;
         }
 
         const protocolVersion = buff.readUInt16LE(0);
+        tracerBuffer.add(`Lendo a versão do protocolo: ${protocolVersion} (${numeroToHex(protocolVersion, 2)}) no offset 0`);
+
         const optionFlags = buff.readUInt16LE(2);
+        tracerBuffer.add(`Lendo as flags de opções: ${optionFlags} (${numeroToHex(optionFlags, 2)}) no offset 2`);
 
         this.#campos.protocolVersion = protocolVersion;
         this.#campos.optionFlags = optionFlags;
 
         this.#statusComando.isValido = true;
 
+        tracerBuffer.add(`Parser de RegisterSession finalizado com sucesso! Versão do protocolo: ${protocolVersion} (${numeroToHex(protocolVersion, 2)}), Flags de opções: ${optionFlags} (${numeroToHex(optionFlags, 2)})`);
         retornoParse.isSucesso = true;
         return retornoParse;
     }
@@ -94,23 +118,20 @@ export class CommandSpecificDataRegisterSession {
             isValido: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O tracer contém o passo a passo do parser do buffer
+             */
+            tracer: undefined
         }
 
         // Se algum campo ficou faltando, validar se não é valido
-        if (!this.#statusComando.isValido) {
+        if (this.#statusComando.isValido) {
+
+            retornoOk.isValido = true;
+        } else {
             retornoOk.erro.descricao = this.#statusComando.erro.descricao;
-            return retornoOk;
         }
-
-        // Se os campos forem validos, validar os campos
-        if (this.#campos.protocolVersion != 1) {
-            retornoOk.erro.descricao = `Protocol Version ${this.#campos.protocolVersion} não é suportado. Deve ser 1`;
-            return retornoOk;
-        }
-
-        // Se os campos estão preenchidos e o protocol version for 1, ta tudo certo!
-        retornoOk.isValido = true;
         return retornoOk;
     }
 

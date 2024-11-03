@@ -8,7 +8,7 @@
 // Próximos 2 bytes: ROute Path, destino do dispositivo CIP receber(eu acho, tipo se tiver mais de um dispositivo conectado ao dispositivo remoto, consigo referencia-lo)
 
 import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
-import { hexDeBuffer } from "../../../../../../../../Utils/Utils.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../../../Utils/Utils.js";
 import { CIPSendRRDataBuilder } from "../../CIP.js";
 
 /**
@@ -173,9 +173,9 @@ export class CIPConnectionManagerBuilder {
      * @param {Number} priority 
      */
     setPriority(priority) {
-        if (priority == undefined) throw new Error(`[CIPConnectionManagerBuilder] O campo priority é obrigatório`);
+        if (priority == undefined) throw new Error(`O campo priority é obrigatório`);
 
-        if (typeof priority != 'number') throw new Error(`[CIPConnectionManagerBuilder] O campo priority deve ser um número`);
+        if (typeof priority != 'number') throw new Error(`O campo priority deve ser um número`);
 
         this.#campos.priority = priority;
     }
@@ -185,9 +185,9 @@ export class CIPConnectionManagerBuilder {
      ** Também não fui afundo pra entender o que exatamente é esse campo, mas parece que é algo com o tempo maximo que o dispositivo remoto vai precisar responder, se não conseguir ele retornará erro.
      */
     setTimeoutTicks(numero) {
-        if (numero == undefined) throw new Error(`[CIPConnectionManagerBuilder] O campo timeoutTicks é obrigatório`);
+        if (numero == undefined) throw new Error(`O campo timeoutTicks é obrigatório`);
 
-        if (typeof numero != 'number') throw new Error(`[CIPConnectionManagerBuilder] O campo timeoutTicks deve ser um número`);
+        if (typeof numero != 'number') throw new Error(`O campo timeoutTicks deve ser um número`);
 
         this.#campos.timeoutTicks = numero;
     }
@@ -232,7 +232,7 @@ export class CIPConnectionManagerBuilder {
 
         const tracerBuffer = retBuff.tracer.addTipo(`CIP ConnectionManagerBuilder`);
 
-        tracerBuffer.addLog(`Iniciando a criação do buffer do CIP Connection Manager`);
+        tracerBuffer.add(`Iniciando a criação do buffer do CIP Connection Manager`);
 
         // Alocar 6 bytes pro cabeçalho do serviço CIP Connection Manager
         const bufferCabecalho = Buffer.alloc(6);
@@ -241,7 +241,7 @@ export class CIPConnectionManagerBuilder {
 
         // Primeiro 1 byte é oodigo do serviço
         bufferCabecalho.writeUInt8(this.codigoServico, 0);
-        tracerBuffer.add(`Setando o campo codigo de serviço para ${this.codigoServico} no offset 0`);
+        tracerBuffer.add(`Setando o campo codigo de serviço para ${this.codigoServico} (${numeroToHex(this.codigoServico, 1)}) no offset 0`);
 
         const tamanhoRequestPath = Math.ceil((this.#campos.requestPath.classe.length + this.#campos.requestPath.instancia.length) / 2)
         // Próximo 1 byte é o tamanho do Request Path(nesse caso é o Connection Manager)
@@ -251,19 +251,23 @@ export class CIPConnectionManagerBuilder {
         // Próximos 4 bytes o Request Path do Connection Manager
         // 2 Bytes da Classe
         this.#campos.requestPath.classe.copy(bufferCabecalho, 2);
-        tracerBuffer.add(`Setando a classe do Request Path para ${hexDeBuffer(this.#campos.requestPath.classe)} no offset 2`);
+        tracerBuffer.add(`Setando a classe do Request Path para (${hexDeBuffer(this.#campos.requestPath.classe)}) no offset 2`);
 
         // 2 Bytes da Instancia
         this.#campos.requestPath.instancia.copy(bufferCabecalho, 4);
-        tracerBuffer.add(`Setando a instancia do Request Path para ${hexDeBuffer(this.#campos.requestPath.instancia)} no offset 4`);
+        tracerBuffer.add(`Setando a instancia do Request Path para (${hexDeBuffer(this.#campos.requestPath.instancia)}) no offset 4`);
 
         tracerBuffer.add(`Buffer de cabeçalho gerado com sucesso: ${hexDeBuffer(bufferCabecalho)}`);
 
         tracerBuffer.add(`Iniciando a criação do buffer do CIP Embedded Message Request`);
+
         // Gerar o Buffer do CIP Embedded Message Request
         let gerarBufferCIPEmbbed = this.#campos.CIPEmbeddedMessage.CIPServicoSolicitado.criarBuffer();
+
+        retBuff.tracer.appendTraceLog(gerarBufferCIPEmbbed.tracer);
+
         if (!gerarBufferCIPEmbbed.isSucesso) {
-            retBuff.erro.descricao = `[CIPConnectionManagerBuilder] Erro ao gerar o buffer do CIP Embedded Message Request: ${gerarBufferCIPEmbbed.erro.descricao}`;
+            retBuff.erro.descricao = `Erro ao gerar o buffer do CIP Embedded Message Request: ${gerarBufferCIPEmbbed.erro.descricao}`;
 
             tracerBuffer.add(`Erro ao gerar o buffer do CIP Embedded Message Request: ${gerarBufferCIPEmbbed.erro.descricao}`);
             return retBuff;
@@ -298,6 +302,7 @@ export class CIPConnectionManagerBuilder {
         let routePath = (this.#campos.routePath.tipoSegmento << 5) | (this.#campos.routePath.isLinkAddressExtendido << 4) | this.#campos.routePath.porta;
 
         let tamanhoWordsRoutePath = Math.ceil((Buffer.from([routePath]).length) / 2)
+
         // Os próximos 1 bytes é o total de WORDs contido no Route Path
         buff.writeUInt8(tamanhoWordsRoutePath, 4 + offsetPayloadCIPEmbedded);
         tracerBuffer.add(`Setando o tamanho do Route Path para ${tamanhoWordsRoutePath} WORDs no offset ${4 + offsetPayloadCIPEmbedded}`);
@@ -318,6 +323,8 @@ export class CIPConnectionManagerBuilder {
         const bufferFinal = Buffer.concat([bufferCabecalho, buff]);
 
         tracerBuffer.add(`Buffer completo do cabeçalho + CIP Embedded Message Request gerado com sucesso: ${hexDeBuffer(bufferFinal)}, total de ${bufferFinal.length} bytes`);
+
+        tracerBuffer.add(`Builder CIPConnectionManager finalizado.`);
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = bufferFinal;

@@ -1,5 +1,5 @@
-import { TraceLog } from "../../../../../../../../Utils/TraceLog";
-import { hexDeBuffer } from "../../../../../../../../Utils/Utils";
+import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../../../../Utils/Utils.js";
 
 /**
  * O serviço Classe é usado pra solicitar outros serviços em geral que não possuem um builder dedicado a eles. É algo mais manual.
@@ -111,7 +111,9 @@ export class ClasseServiceBuilder {
             tracer: new TraceLog()
         }
 
-        const tracerBuffer = retBuff.tracer.addTipo('Classe Generica');
+        const tracerBuffer = retBuff.tracer.addTipo('ClasseGenericaBuilder');
+
+        tracerBuffer.add(`Iniciando criação do Buffer do serviço de Classe Generica`);
 
         // O buffer do cabeçalho do serviço
         const bufferCabecalho = Buffer.alloc(2);
@@ -144,6 +146,8 @@ export class ClasseServiceBuilder {
         let bufferCompleto = Buffer.concat([bufferCabecalho, bufferRequestPath]);
 
         tracerBuffer.add(`Buffer final do Cabeçalho + Request Path: ${hexDeBuffer(bufferCompleto)}`);
+
+        tracerBuffer.add(`Builder Classe Generica finalizado.`);
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = bufferCompleto;

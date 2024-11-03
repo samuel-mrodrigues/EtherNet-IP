@@ -1,7 +1,9 @@
-import { Servicos } from "../../../../../../Utils/CIPServices.js";
+import { Servicos, getService } from "../../../../../../Utils/CIPServices.js";
 
 import { SingleServicePacketParser } from "./Servicos/SingleServicePacket.js";
 import { MultipleServicePacketParser } from "./Servicos/MultipleServicePacket.js";
+import { TraceLog } from "../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../Utils/Utils.js";
 
 /**
  * O CIP Parser é responsavél por dar parse no layer CIP
@@ -23,7 +25,12 @@ export class CIPSendRRDataParser {
          */
         erro: {
             descricao: ''
-        }
+        },
+        /**
+         * O tracer contém detalhes do parse do Buffer, util pra debugar.
+         * @type {TraceLog}
+         */
+        tracer: undefined
     }
 
     /**
@@ -61,15 +68,27 @@ export class CIPSendRRDataParser {
             isSucesso: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Tracer com detalhes do parse do buffer
+             */
+            tracer: new TraceLog()
         }
+
+        this.#statusCIP.tracer = retornoBuffer.tracer;
+
+        const tracerBuffer = retornoBuffer.tracer.addTipo(`CIP Parser`);
+
+        tracerBuffer.add(`Iniciando parser de CIP para o Buffer: ${hexDeBuffer(buff)}, ${buff.length} bytes`);
 
         // O buffer precisa no minimo 3 bytes para ser um CIP válido
         if (buff.length < 3) {
             this.#statusCIP.isValido = false;
-            this.#statusCIP.erro.descricao = 'O buffer não contém dados suficientes para ser um CIP válido';
+            this.#statusCIP.erro.descricao = `O buffer não contém ao minimo 3 bytes de dados suficientes para ser um CIP válido. Ele tem apenas ${buff.length} bytes`;
 
             retornoBuffer.erro.descricao = this.#statusCIP.erro.descricao;
+
+            tracerBuffer.add(`O Buffer era esperado ter ao menos 3 bytes, mas tem apenas ${buff.length} bytes.`);
             return retornoBuffer;
         }
 
@@ -79,13 +98,21 @@ export class CIPSendRRDataParser {
         const codigoService = buff.readUInt8(0) & 0x7F;
         this.#campos.codigoServico = codigoService;
 
+        const tipoServicoSolicitado = getService(codigoService);
+
+        tracerBuffer.add(`Lendo o código de serviço solicitado: ${codigoService} (${numeroToHex(codigoService, 1)}) - ${tipoServicoSolicitado != undefined? tipoServicoSolicitado.descricao : 'Serviço desconhecido'})`);
+
         // Pega todos os bytes restantes do buffer que contém os dados do serviço solicitado
         const bufferServicoDados = buff.subarray(2);
+
+        tracerBuffer.add(`Buffer de dados relacionado ao serviço específico: ${hexDeBuffer(bufferServicoDados)}, ${bufferServicoDados.length} bytes`);
 
         // Salvar os bytes do serviço recebido
         this.#campos.bufferPacketdata = bufferServicoDados;
 
         retornoBuffer.isSucesso = true;
+
+        tracerBuffer.add(`Parser de CIP finalizado!`);
         return retornoBuffer;
     }
 
@@ -97,8 +124,14 @@ export class CIPSendRRDataParser {
             isValido: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Tracer com detalhes do parse do buffer
+             */
+            tracer: undefined
         }
+
+        retValido.tracer = this.#statusCIP.tracer;
 
         if (this.#statusCIP.isValido) {
             retValido.isValido = true;

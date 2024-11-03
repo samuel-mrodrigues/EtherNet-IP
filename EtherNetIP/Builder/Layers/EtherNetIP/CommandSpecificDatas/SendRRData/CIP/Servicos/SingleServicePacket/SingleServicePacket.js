@@ -1,5 +1,5 @@
-import { TraceLog } from "../../../../../../../../Utils/TraceLog";
-import { hexDeBuffer } from "../../../../../../../../Utils/Utils";
+import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../../../Utils/Utils.js";
 
 /**
  * O Single Service Packet é usado para solicitar o Request Path para um recurso especifico, como uma tag do dispositivo remoto com a descrição.
@@ -141,7 +141,9 @@ export class SingleServicePacketServiceBuilder {
             tracer: new TraceLog()
         }
 
-        const tracerLogBuff = retBuff.tracer.addTipo(`SingleServicePacket`);
+        const tracerLogBuff = retBuff.tracer.addTipo(`SingleServicePacketBuilder`);
+
+        tracerLogBuff.add(`Iniciando a criação do buffer do serviço Single Service Packet`);
 
         // O cabeçalho do serviço Single Service Packet
         const bufferCabecalho = Buffer.alloc(2);
@@ -150,13 +152,13 @@ export class SingleServicePacketServiceBuilder {
 
         // O 1 byte do cabeçalho é o tipo do service
         bufferCabecalho.writeUInt8(this.#campos.codigoServico, 0);
-        tracerLogBuff.add(`Setando campo de código de serviço para ${getSingleServiceCode(this.#campos.codigoServico).descricao} no offset 0`);
+        tracerLogBuff.add(`Setando campo de código de serviço para ${getSingleServiceCode(this.#campos.codigoServico).descricao} (${numeroToHex(this.#campos.codigoServico, 1)}) no offset 0`);
 
         let tamanhoDoRequestPath = Math.ceil((this.#campos.atributoNome.length + 2) / 2);
 
         // O 2 byte é o tamanho do Request Path abaixo em words
         bufferCabecalho.writeUInt8(tamanhoDoRequestPath, 1);
-        tracerLogBuff.add(`Setando campo de tamanho do Request Path para ${tamanhoDoRequestPath} words no offset 1`);
+        tracerLogBuff.add(`Setando campo de tamanho do Request Path para ${tamanhoDoRequestPath} words (${this.#campos.atributoNome}) no offset 1`);
 
         tracerLogBuff.add(`Cabeçalho do serviço Single Service Packet gerado com sucesso: ${hexDeBuffer(bufferCabecalho)}`);
 
@@ -280,8 +282,10 @@ export class SingleServicePacketServiceBuilder {
         tracerLogBuff.add(`Buffer do CIP Generic Data gerado com sucesso: ${hexDeBuffer(bufferCIPGenericData)}`);
 
         const buffFinal = Buffer.concat([bufferCabecalho, buffRequestPath, bufferCIPGenericData]);
-        
+
         tracerLogBuff.add(`Buffer completo(Cabeçalho + Request Path + CIP Generic Data) gerado com sucesso: ${hexDeBuffer(buffFinal)}`);
+        
+        tracerLogBuff.add(`Builder SingleServicePacket finalizado`);
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = buffFinal;

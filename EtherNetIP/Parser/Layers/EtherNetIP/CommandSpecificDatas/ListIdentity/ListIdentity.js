@@ -2,6 +2,9 @@
  * O Command Specific Data ListIdentity retorna as informações de identidade do dispositivo, como endereço IP, nome, fabricante, numero serial, etc...
  */
 
+import { TraceLog } from "../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../Utils/Utils.js";
+
 // O buffer começa com o estrutura abaixo
 
 /**
@@ -67,7 +70,12 @@ export class CommandSpecificDataListIdentity {
         isValido: false,
         erro: {
             descricao: ''
-        }
+        },
+        /**
+         * O tracer contém o passo a passo do parser do buffer
+         * @type {TraceLog}
+         */
+        tracer: undefined
     }
 
     /**
@@ -95,6 +103,38 @@ export class CommandSpecificDataListIdentity {
     }
 
     /**
+     * Retorna se o parser do Buffer foi validado com sucesso.
+     */
+    isValido() {
+        const isValido = {
+            /**
+             * Se o parser do buffer foi validado com sucesso
+             */
+            isValido: false,
+            /**
+             * Detalhes do erro de validação do parser se houve algum
+             */
+            erro: {
+                descricao: ''
+            },
+            /**
+             * O tracer contém detalhes do passo a passo do parser do buffer
+             * @type {TraceLog}
+             */
+            tracer: undefined
+        }
+
+        isValido.tracer = this.#statusComando.tracer;
+
+        if (this.#statusComando.isValido) {
+            isValido.isValido = true;
+        } else {
+            isValido.erro.descricao = this.#statusComando.erro.descricao;
+        }
+        return isValido;
+    }
+
+    /**
      * Passar um Buffer de Command Specific Data do tipo ListIdentity e fazer o parse dos campos
      * @param {Buffer} buff - Buffer com os dados do Command Specific Data
      */
@@ -103,26 +143,51 @@ export class CommandSpecificDataListIdentity {
             isSucesso: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Detalhes do parse do buffer recebido
+             */
+            tracer: new TraceLog()
         }
+
+        const tracerBuffer = retornoParse.tracer.addTipo('ListIdentity Parser')
+        this.#statusComando.tracer = retornoParse.tracer;
+
+        tracerBuffer.add(`Iniciando o parser de ListIdentity para o Buffer: ${hexDeBuffer(buff)}, com ${buff.length} bytes.`);
 
         // Se o buffer não tiver pelo menos 2 bytes do tamanho da lista de identidades retornadas, ele não é um buffer válido
         if (buff.length < 2) {
+            this.#statusComando.isValido = false
             this.#statusComando.erro.descricao = 'Buffer não contém os 2 bytes minimos do Command Specific Data do comando List Identity.';
 
             retornoParse.erro.descricao = this.#statusComando.erro.descricao;
+
+            tracerBuffer.add(`O Buffer informado não contém os 2 bytes minimos do Command Specific Data do comando List Identity.`);
             return retornoParse;
         }
 
         // Total de identidades recebidas
         let totIdentidades = buff.readUInt16LE(0);
+        tracerBuffer.add(`Lendo o total de identidades retornadas: ${totIdentidades}: (${numeroToHex(totIdentidades, 2)})`);
 
         let offsetBuff = 0;
 
         for (let identidadeIndex = 0; identidadeIndex < totIdentidades; identidadeIndex++) {
 
+            // Verificar se o Buffer tem o range do proximo tipo de identidade
+            if (buff.length < offsetBuff + 4) {
+                this.#statusComando.isValido = false;
+                this.#statusComando.erro.descricao = `Buffer não tem o range de bytes suficiente pra ler a identidade ${identidadeIndex + 1}. Esperado no minimo ${offsetBuff + 4} bytes, atual ${buff.length} bytes`;
+
+                retornoParse.erro.descricao = this.#statusComando.erro.descricao;
+
+                tracerBuffer.add(`Buffer não tem o range de bytes suficiente pra ler a identidade ${identidadeIndex + 1}. Esperado no minimo ${offsetBuff + 4} bytes, atual ${buff.length} bytes`);
+                return retornoParse;
+            }
+
             // Os próximos 2 bytes é tipo da identidade
             const tipoIdentidade = buff.readUInt16LE(offsetBuff + 2);
+            tracerBuffer.add(`Lendo o tipo da identidade: ${tipoIdentidade}: (${numeroToHex(tipoIdentidade, 2)}) do offset ${offsetBuff + 2}`);
 
             switch (tipoIdentidade) {
 
@@ -143,8 +208,13 @@ export class CommandSpecificDataListIdentity {
                     //* State: 1 byte
                     const tamanhoPayloadBytes = buff.readUInt16LE(offsetBuff + 4);
 
+                    let offsetInicioIdCIP = offsetBuff + 6;
+                    let offsetFimIdCIP = offsetBuff + 6 + tamanhoPayloadBytes;
+
                     // Passar o Buffer cortado com a identidade CIP para o método de parse
-                    let identidadeCIPDados = parseIdentidadeCIP(buff.subarray(offsetBuff + 6, offsetBuff + 6 + tamanhoPayloadBytes));
+                    let identidadeCIPDados = parseIdentidadeCIP(buff.subarray(offsetInicioIdCIP, offsetFimIdCIP));
+
+                    tracerBuffer.add(`Lendo o payload da identidade CIP: ${hexDeBuffer(buff.subarray(offsetInicioIdCIP, offsetFimIdCIP))} do offset ${offsetInicioIdCIP} até ${offsetFimIdCIP}`);
 
                     // Se conseguiu extrair com sucesso as informações do CIP, salvar ele
                     if (identidadeCIPDados.isSucesso) {
@@ -152,18 +222,23 @@ export class CommandSpecificDataListIdentity {
 
                         // Mover o offset para a próxima identidade disponivel. Sendo o offset do payload do Identity CIP + 2 byte do tamanho do payload do Identity CIP) + 2 byte do tipo da identidade CIP);
                         offsetBuff += tamanhoPayloadBytes + 2 + 2;
+
+                        tracerBuffer.add(`Identidade CIP extraida com sucesso. ${JSON.stringify(this.#campos.identidadeCIP)}`);
                         break;
                     } else {
 
                         // Se deu erros, eu não devo continuar verificando os outros bytes pois não vou ter a ordem certa dos bytes
+                        this.#statusComando.isValido = false;
                         this.#statusComando.erro.descricao = `Erro ao dar parse na Identidade CIP: ${identidadeCIPDados.erro.descricao}`;
 
                         retornoParse.erro.descricao = `Erro ao dar parse na Identidade CIP: ${identidadeCIPDados.erro.descricao}`;
+
+                        tracerBuffer.add(`Erro ao dar parse na Identidade CIP: ${identidadeCIPDados.erro.descricao}`);
                         return retornoParse;
                     }
                 }
                 default: {
-                    console.log(`Tipo de identidade desconhecido: ${tipoIdentidade}. Ignorando.`);
+                    tracerBuffer.add(`Tipo de identidade não reconhecido: ${tipoIdentidade}: (${numeroToHex(tipoIdentidade, 2)}) do offset ${offsetBuff + 2}`);
                     break;
                 }
             }
@@ -173,8 +248,9 @@ export class CommandSpecificDataListIdentity {
         this.#statusComando.isValido = true;
         this.#campos.contadorTotIdentidades = totIdentidades;
 
-        retornoParse.isSucesso = true;
+        tracerBuffer.add(`Finalizando o parser de ListIdentity com sucesso!`);
 
+        retornoParse.isSucesso = true;
         return retornoParse;
     }
 

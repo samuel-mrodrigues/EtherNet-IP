@@ -1,4 +1,6 @@
 import { CIPGeneralStatusCodes, getStatusCode } from "../../../../../../../Utils/CIPRespondeCodes.js";
+import { TraceLog } from "../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../../Utils/Utils.js";
 
 /**
  * A classe SingleServicePacket é responsavél por dar parse num Buffer de Serviço unico
@@ -14,7 +16,12 @@ export class SingleServicePacketParser {
         isValido: false,
         erro: {
             descricao: ''
-        }
+        },
+        /**
+         * Um tracer para acomapanhar o processo de parse do Buffer
+         * @type {TraceLog}
+         */
+        tracer: undefined
     }
 
     /**
@@ -49,15 +56,27 @@ export class SingleServicePacketParser {
             isSucesso: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * Um tracer para acomapanhar o processo de parse do Buffer
+             */
+            tracer: new TraceLog()
         }
+
+        this.#statusServico.tracer = retBuff.tracer;
+
+        const tracerBuffer = retBuff.tracer.addTipo(`SingleServicePacket Parser`);
+
+        tracerBuffer.add(`Iniciando parser do SingleServicePacket com o Buffer: ${hexDeBuffer(buff)}, ${buff.length} bytes`);
 
         // Precisa ser pelo menos 2 bytes que é o codigo de status + additional status size
         if (buff.length < 2) {
-            this.#statusServico.erro.descricao = `'Buffer de serviço não contém os 2 bytes minimos'`;
+            this.#statusServico.erro.descricao = `O Buffer recebido tem apenas ${buff.length} bytes, precisa ter no minimo 2 bytes para ser um Single Service Packet válido.`;
             this.#statusServico.isValido = false;
 
             retBuff.erro.descricao = this.#statusServico.erro.descricao;
+
+            tracerBuffer.add(`O Buffer era esperado ter ao menos 2 bytes, mas tem apenas ${buff.length} bytes.`);
             return retBuff;
         }
 
@@ -65,7 +84,7 @@ export class SingleServicePacketParser {
         this.#campos.codigoStatus = buff.readUInt8(0);
 
         // Próximo 1 byte é o additional status size em WORDS que na maioria pelo que vi sempre é 0
-        let additionalStatusEmWords = buff.readUInt8(1);
+        // let additionalStatusEmWords = buff.readUInt8(1);
 
         // Validar se o status devolvido é valido
         let getStatusSinglePacket = getStatusCode(this.#campos.codigoStatus);
@@ -74,8 +93,11 @@ export class SingleServicePacketParser {
             this.#statusServico.erro.descricao = `Código de status do Single Service Packet recebido: '${this.#campos.codigoStatus}' não é um código de status válido. `;
 
             retBuff.erro.descricao = this.#statusServico.erro.descricao;
+            tracerBuffer.add(`Código de status do Single Service Packet recebido: '${this.#campos.codigoStatus}' não é um código de status válido. `);
             return retBuff;
         }
+
+        tracerBuffer.add(`Lendo código de status do Single Service Packet: ${this.#campos.codigoStatus} (${numeroToHex(this.#campos.codigoStatus, 1)}) - ${getStatusSinglePacket.descricao}`);
 
         // Setar como valido
         this.#statusServico.isValido = true;
@@ -83,6 +105,9 @@ export class SingleServicePacketParser {
         // Salvar o buffer do Command Specific Generic especifico depois do Status Code
         this.#campos.commandSpecificData = buff.subarray(2);
 
+        tracerBuffer.add(`O Buffer do Command Specific Data do Single Service Packet é: ${hexDeBuffer(this.#campos.commandSpecificData)}, ${this.#campos.commandSpecificData.length} bytes`);
+
+        tracerBuffer.add(`Parser do SingleServicePacket finalizado.`);	
         retBuff.isSucesso = true;
         return retBuff;
     }
@@ -95,8 +120,11 @@ export class SingleServicePacketParser {
             isValido: false,
             erro: {
                 descricao: ''
-            }
+            },
+            tracer: undefined
         }
+
+        retValido.tracer = this.#statusServico.tracer;
 
         if (this.#statusServico.isValido) {
             retValido.isValido = true

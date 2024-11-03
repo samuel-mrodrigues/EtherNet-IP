@@ -5,6 +5,7 @@ import { SingleServicePacketServiceBuilder } from "./Servicos/SingleServicePacke
 
 import { Servicos, getService } from "../../../../../../Utils/CIPServices.js";
 import { TraceLog } from "../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../Utils/Utils.js";
 
 /**
  * O layer CIP (Common Industrial Protocol) contém detalhes de uma solicitação CIP. Nesse caso, esse CIP Layer contém os dados encapsulados para mensagens unconnected via SendRRData
@@ -29,6 +30,22 @@ export class CIPSendRRDataBuilder {
          * @type {CIPConnectionManagerBuilder | SingleServicePacketServiceBuilder | MultipleServicePacketServiceBuilder | ClasseServiceBuilder}
          */
         servico: undefined
+    }
+
+    /**
+     * Se já foi gerado o Buffer, contém os detalhes da ultima geração dele
+     */
+    #ultimoBuffer = {
+        /**
+         * O tracer de geração ocorrido na geração desse Buffer
+         * @type {TraceLog}
+         */
+        tracer: undefined,
+        /**
+         * O Buffer com os dados gerados
+         * @type {Buffer}
+         */
+        buffer: undefined
     }
 
     /**
@@ -116,13 +133,14 @@ export class CIPSendRRDataBuilder {
             tracer: new TraceLog()
         }
 
-        const tracerBuffer = retornoBuffer.tracer.addTipo('Common Industrial Protocol');
+        const tracerBuffer = retornoBuffer.tracer.addTipo('CIPBuilder');
 
-        tracerBuffer.add(`Iniciando a criação do Buffer CIP `)
+        tracerBuffer.add(`Iniciando a criação do Buffer CIP`)
 
         // Vou armazenar o conteudo dinamico do serviço CIP em um array
         let bufferCorpo = Buffer.alloc(0);
 
+        tracerBuffer.add(`Preparando pacote pro serviço selecionado ${this.#campos.codigoServico} (${numeroToHex(this.#campos.codigoServico, 1)}): ${getService(this.#campos.codigoServico).descricao}`)
 
         switch (this.#campos.codigoServico) {
             case Servicos.UnconnectedMessageRequest.hex: {
@@ -134,8 +152,13 @@ export class CIPSendRRDataBuilder {
 
                 // Gerar o buffer do CIP Connection Manager que é o serviço atual configurado no CIP Layer
                 let gerarBufferPath = instanciaCIPConnectionManager.criarBuffer();
+
+                retornoBuffer.tracer.appendTraceLog(gerarBufferPath.tracer);
+
                 if (!gerarBufferPath.isSucesso) {
-                    retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Erro ao gerar o buffer do CIP Connection Manager: ${gerarBufferPath.erro.descricao}`;
+                    retornoBuffer.erro.descricao = `Erro ao gerar o buffer do CIP Connection Manager: ${gerarBufferPath.erro.descricao}`;
+
+                    tracerBuffer.add(`O CIP Connection retornou que não conseguiu gerar o seu Buffer. Motivo: ${gerarBufferPath.erro.descricao}`)
                     return retornoBuffer;
                 }
 
@@ -151,8 +174,13 @@ export class CIPSendRRDataBuilder {
 
                 // Gerar o buffer CIP do Single Service Packet
                 let gerarBufferPath = instanciaCIPSingleServicePacket.criarBuffer();
+
+                retornoBuffer.tracer.appendTraceLog(gerarBufferPath.tracer);
+
                 if (!gerarBufferPath.isSucesso) {
-                    retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Erro ao gerar o buffer do Single Service Packet: ${gerarBufferPath.erro.descricao}`;
+                    retornoBuffer.erro.descricao = `Erro ao gerar o buffer do Single Service Packet: ${gerarBufferPath.erro.descricao}`;
+
+                    tracerBuffer.add(`O Single Service Packet retornou que não conseguiu gerar o seu Buffer. Motivo: ${gerarBufferPath.erro.descricao}`)
                     return retornoBuffer;
                 }
 
@@ -167,8 +195,13 @@ export class CIPSendRRDataBuilder {
                 const instanciaCIPMultipleServicePacket = this.#campos.servico;
 
                 let gerarBufferPath = instanciaCIPMultipleServicePacket.criarBuffer();
+
+                retornoBuffer.tracer.appendTraceLog(gerarBufferPath.tracer);
+
                 if (!gerarBufferPath.isSucesso) {
-                    retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Erro ao gerar o buffer do Multiple Service Packet: ${gerarBufferPath.erro.descricao}`;
+                    retornoBuffer.erro.descricao = `Erro ao gerar o buffer do Multiple Service Packet: ${gerarBufferPath.erro.descricao}`;
+
+                    tracerBuffer.add(`O Multiple Service Packet retornou que não conseguiu gerar o seu Buffer. Motivo: ${gerarBufferPath.erro.descricao}`)
                     return retornoBuffer;
                 }
 
@@ -183,8 +216,13 @@ export class CIPSendRRDataBuilder {
                 const instanciaCIPClasse = this.#campos.servico;
 
                 let gerarBufferCIP = instanciaCIPClasse.criarBuffer();
+
+                retornoBuffer.tracer.appendTraceLog(gerarBufferCIP.tracer);
+                
                 if (!gerarBufferCIP.isSucesso) {
-                    retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Erro ao gerar o buffer da Classe Generica: ${gerarBufferCIP.erro.descricao}`;
+                    retornoBuffer.erro.descricao = `Erro ao gerar o buffer da Classe Generica: ${gerarBufferCIP.erro.descricao}`;
+
+                    tracerBuffer.add(`A Classe Generica retornou que não conseguiu gerar o seu Buffer. Motivo: ${gerarBufferCIP.erro.descricao}`)
                     return retornoBuffer;
                 }
 
@@ -193,18 +231,27 @@ export class CIPSendRRDataBuilder {
             }
             default: {
 
-                retornoBuffer.erro.descricao = `[CIPSendRRDataBuilder] Código de serviço não reconhecido: ${this.#campos.codigoServico}`;
+                retornoBuffer.erro.descricao = `Código de serviço não reconhecido: ${this.#campos.codigoServico}`;
+
+                retornoBuffer.tracer.appendTraceLog(gerarBufferPath.tracer);
+                tracerBuffer.add(`O código de serviço não foi reconhecido: ${this.#campos.codigoServico}`)
                 return retornoBuffer;
             }
         }
 
-        // Concatenar o buffer do cabeçalho CIP com o buffer do corpo
+        tracerBuffer.add(`Buffer do serviço solicitado foi gerado com sucesso: ${hexDeBuffer(bufferCorpo)}, com ${bufferCorpo.length} bytes`)
 
+        // Concatenar o buffer do cabeçalho CIP com o buffer do corpo
         const bufferCompleto = bufferCorpo;
 
         retornoBuffer.isSucesso = true;
         retornoBuffer.sucesso.buffer = bufferCompleto;
 
+        this.#ultimoBuffer = {
+            buffer: bufferCompleto,
+            tracer: retornoBuffer.tracer
+        }
+        tracerBuffer.add(`Builder CIP finalizado.`)
         return retornoBuffer;
     }
 }

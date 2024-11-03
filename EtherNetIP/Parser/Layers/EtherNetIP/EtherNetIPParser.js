@@ -19,6 +19,9 @@ import { CommandSpecificDataRegisterSession } from "./CommandSpecificDatas/Regis
 import { CommandSpecificDataListServices } from "./CommandSpecificDatas/ListServices/ListServices.js";
 import { CommandSpecificDataListIdentity } from "./CommandSpecificDatas/ListIdentity/ListIdentity.js";
 import { CommandSpecificDataSendRRData } from "./CommandSpecificDatas/SendRRData/SendRRData.js";
+import { TraceLog } from "../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../Utils/Utils.js";
+import { getStatusCode } from "../../../Utils/CIPRespondeCodes.js";
 
 /**
  * O Layer de EtherNet/IP (Industiral Protocol) contém as informações de encapsulamento do Header + Command Specific Data
@@ -43,7 +46,12 @@ export class EtherNetIPLayerParser {
          */
         erro: {
             descricao: ''
-        }
+        },
+        /**
+         * O tracer registra como foi a etapa de parse dos bytes recebidos
+         * @type {TraceLog}
+         */
+        tracer: undefined
     }
 
     /**
@@ -75,11 +83,13 @@ export class EtherNetIPLayerParser {
              */
             statusCodigo: undefined,
             /**
-             * Contexto atual para notificar o outro lado
+             * O Sender Context original que o dispositivo recebeu e devolveu novamente
+             * @type {Buffer}
              */
             contextoRemetente: undefined,
             /**
              * Opções de flags adicionais(sei lá oq tem aqui)
+             * @type {Number}
              */
             opcoes: undefined
         },
@@ -110,8 +120,17 @@ export class EtherNetIPLayerParser {
             isSucesso: false,
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O trace log contém as etapas do parser dos bytes recebidos no Socket
+             */
+            tracer: new TraceLog()
         }
+
+        this.#statusLayer.tracer = retornoParse.tracer;
+        const tracerBuff = retornoParse.tracer.addTipo(`EtherNetIP Parser`);
+
+        tracerBuff.add(`Iniciando o parser de Buffer EtherNet/IP: ${hexDeBuffer(buff)}`);
 
         // Se o buffer não tiver os 24 bytes inicias, ele não é um buffer válido
         if (buff.length < 24) {
@@ -119,31 +138,42 @@ export class EtherNetIPLayerParser {
             this.#statusLayer.erro.descricao = 'Buffer não contém os 24 bytes iniciais do Header de Encapsulamento';
 
             retornoParse.erro.descricao = this.#statusLayer.erro.descricao;
+
+            tracerBuff.add(`Buffer não contém os 24 bytes iniciais do Header de Encapsulamento`);
             return retornoParse;
         }
+
+        tracerBuff.add(`O Buffer recebido contém ${buff.length} bytes. Iniciando a leitura do Header de Encapsulamento`);
 
         // Pegar os campos do Header de Encapsulamento
 
         // O comando é os primeiros 2 bytes do buffer
         const comando = buff.readUInt16LE(0);
+        tracerBuff.add(`Lido o comando do Header de Encapsulamento de 2 bytes: '${comando}' (${numeroToHex(comando, 2)}) no offset 0`);
 
         // O tamanho em bytes do Command Specific Data é os proximos 2 bytes
         const tamanhoBytes = buff.readUInt16LE(2);
+        tracerBuff.add(`Lido o tamanho do Command Specific Data do Header de Encapsulamento de 2 bytes: '${tamanhoBytes}' (${numeroToHex(tamanhoBytes, 2)}) no offset 2`);
 
         // O Session Handler ID é os proximos 4 bytes
         const sessionHandler = buff.readUInt32LE(4);
+        tracerBuff.add(`Lido o Session Handler ID do Header de Encapsulamento de 4 bytes: '${sessionHandler}' (${numeroToHex(sessionHandler, 4)}) no offset 4`);
 
         // O status é os proximos 4 bytes
         const status = buff.readUInt32LE(8);
+        tracerBuff.add(`Lido o Status do Header de Encapsulamento de 4 bytes: '${status}' (${numeroToHex(status, 4)}) no offset 8`);
 
         // O contexto do remetente é os proximos 8 bytes
         const contextoSender = buff.subarray(12, 20);
+        tracerBuff.add(`Lido o Contexto do Header de Encapsulamento de 8 bytes: ${contextoSender.readBigUint64LE()} '${hexDeBuffer(contextoSender)}' no offset 12`);
 
         // As opções são os proximos 4 bytes e últimos bytes do header de encapsulamento
         const options = buff.readUInt32LE(20);
+        tracerBuff.add(`Lido as Opções do Header de Encapsulamento de 4 bytes: '${options}' (${numeroToHex(options, 4)}) no offset 20`);
 
-        // Se o comando recebido não existe
+        // Se o comando recebido  existe
         if (isComandoExiste(comando)) {
+
             // se existir, preencher no campo
             this.#campos.header.codigoComando = comando;
         } else {
@@ -151,6 +181,8 @@ export class EtherNetIPLayerParser {
             this.#statusLayer.erro.descricao = `Comando ${comando} não existe no layer EtherNet/IP`;
 
             retornoParse.erro.descricao = this.#statusLayer.erro.descricao;
+
+            tracerBuff.add(`Comando ${comando} (${numeroToHex(comando, 2)}) não existe no layer EtherNet/IP`);
             return retornoParse;
         }
 
@@ -165,6 +197,8 @@ export class EtherNetIPLayerParser {
             this.#statusLayer.erro.descricao = `Status ${status} não existe no layer EtherNet/IP`;
 
             retornoParse.erro.descricao = this.#statusLayer.erro.descricao;
+
+            tracerBuff.add(`Status ${status} (${numeroToHex(status, 4)}) não existe no layer EtherNet/IP`);
             return retornoParse;
         }
 
@@ -172,16 +206,20 @@ export class EtherNetIPLayerParser {
         if (status != Status.Sucess.hex) {
             this.#statusLayer.isValido = false;
             this.#statusLayer.erro.descricao = `Status diferente de sucesso 0x0. Codigo ${statusLayer.hex}: ${statusLayer.descricao})`;
-
             this.#campos.header.statusCodigo = status;
 
             retornoParse.erro.descricao = this.#statusLayer.erro.descricao;
+
+            tracerBuff.add(`Status diferente de sucesso 0x0. Codigo ${statusLayer.hex}: ${statusLayer.descricao})`);
             return retornoParse;
         }
+
+        tracerBuff.add(`Header de Encapsulamento lido com sucesso.`);
 
         // O Command Specific Data vem após os 4 bytes do options do header. Ele contém informações relacionados ao tipo da requisição recebida/solicitada e em diante contém os outros layers também.
         // O tamanho maximo é de 0 a 65511 bytes
         let commandSpecificData = buff.subarray(24, buff.length);
+        tracerBuff.add(`Lido o Command Specific Data do Buffer de ${commandSpecificData.length} bytes`);
 
         // O tamanho em bytes do Buffer de Command Specific Data até o fim do Buffer deve corresponder ao tamanho informado no header de encapsulamento
         if (commandSpecificData.length != tamanhoBytes) {
@@ -189,6 +227,8 @@ export class EtherNetIPLayerParser {
             this.#statusLayer.erro.descricao = `Tamanho do Command Specific Data (${commandSpecificData.length} bytes) em diante não corresponde ao tamanho informado no Header de Encapsulamento (${tamanhoBytes} bytes).`;
 
             retornoParse.erro.descricao = this.#statusLayer.erro.descricao;
+
+            tracerBuff.add(`Tamanho do Command Specific Data (${commandSpecificData.length} bytes) em diante não corresponde ao tamanho informado no Header de Encapsulamento (${tamanhoBytes} bytes).`);
             return retornoParse;
         }
 
@@ -202,6 +242,10 @@ export class EtherNetIPLayerParser {
         this.#statusLayer.isValido = true;
 
         retornoParse.isSucesso = true;
+
+        tracerBuff.add(`Buffer EtherNet/IP lido com sucesso. Comando: ${comando} - ${isComandoExiste(comando).descricao}, Tamanho Bytes: ${tamanhoBytes}, Session Handler ID: ${sessionHandler}, Status: ${status} - ${statusLayer.descricao} (${numeroToHex(status, 4)}), Contexto: ${contextoSender.readBigUInt64LE()} (${hexDeBuffer(contextoSender)}), Opções: ${options} (${numeroToHex(options, 4)})`);
+
+        tracerBuff.add(`Parser EtherNet/IP finalizado.`);
         return retornoParse;
     }
 
@@ -219,8 +263,14 @@ export class EtherNetIPLayerParser {
              */
             erro: {
                 descricao: ''
-            }
+            },
+            /**
+             * O tracer contém os detalhes das etapas de geração do Buffer
+             */
+            tracer: undefined
         }
+
+        status.tracer = this.#statusLayer.tracer;
 
         // Se o motivo de não ser valido for por alguma informação incorreta no buffer que faltou certos campos
         if (!this.#statusLayer.isValido) {
@@ -406,7 +456,7 @@ export class EtherNetIPLayerParser {
         logMsg += `    Tamanho Bytes: ${trataNullo(this.#campos.header.tamanhoBytes)}\n`;
         logMsg += `    Session Handler ID: ${trataNullo(this.#campos.header.sessaoHandlerID)}\n`;
         logMsg += `    Status: ${trataNullo(this.#campos.header.statusCodigo)} - ${trataNullo(trataNullo(isStatusExiste(this.#campos.header.statusCodigo)).descricao)}\n`;
-        logMsg += `    Contexto Remetente: ${trataNullo(trataNullo(this.#campos.header.contextoRemetente).toString('hex'))}\n`;
+        logMsg += `    Contexto Livre: ${trataNullo(trataNullo(this.#campos.header.contextoRemetente).toString('hex'))}\n`;
         logMsg += `    Opções: ${trataNullo(this.#campos.header.opcoes)}\n`;
         logMsg += `  Command Specific Data:\n`;
         logMsg += `    Dados: ${trataNullo(trataNullo(this.#campos.commandSpecificData).toString('hex'))}\n`;

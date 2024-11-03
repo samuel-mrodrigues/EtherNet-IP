@@ -2,7 +2,7 @@
  * O Command Specific Data List Services retorna as disponibilidades de comunicação que o dispositivo remoto remoto suporta
  */
 
-import { TraceLog } from "../../../../../Utils/TraceLog";
+import { TraceLog } from "../../../../../Utils/TraceLog.js";
 
 /**
  * TargetItems
@@ -52,7 +52,7 @@ export class CommandSpecificDataListServicesBuilder {
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = Buffer.alloc(0);
 
-        retBuff.tracer.addTipo('ListServices').add(`Criado um Buffer com 0 bytes já que ListServices não necessita de enviar qualquer bytes pro Command Specific Data.`);
+        retBuff.tracer.addTipo('ListServices').add(`Criado um Buffer com 0 bytes já que ListServices não necessita de enviar qualquer bytes pro Command Specific Data.`).add(`Builder ListServices finalizado.`);
 
         return retBuff;
     }

@@ -13,6 +13,13 @@ export class TraceLog {
     #incrementadorId = 0;
     #incrementadorTipoId = 0;
 
+    #listener = {
+        /**
+         * @type {OnMensagemAdicionada[]}
+         */
+        onNovasMensagens: []
+    }
+
     constructor() {
         return this;
     }
@@ -35,6 +42,29 @@ export class TraceLog {
     }
 
     /**
+     * @callback OnMensagemAdicionada
+     * @param {String} mensagem - Mensagem adicionada
+     */
+
+    /**
+     * Adicionar um callback para escutar novas mensagens adicionadas
+     * @param {OnMensagemAdicionada} funcao - Função a ser chamada quando uma nova mensagem for adicionada
+     */
+    onMensagem(funcao) {
+        this.#listener.onNovasMensagens.push(funcao);
+    }
+
+    /**
+     * Dispara um evento de nova mensagem adicionada em qualquer tipo de log
+     * @param {MensagemDeLogTipo} mensagemObj - Objeto de mensagem adicionada
+     */
+    disparaNovaMensagemAdicionada(mensagemObj) {
+        for (const listener of this.#listener.onNovasMensagens) {
+            listener(mensagemObj.mensagem);
+        }
+    }
+
+    /**
      * Appenda os logs de outro TraceLog
      * @param {TraceLog} tracelogInst - Classe TraceLog
      */
@@ -43,35 +73,77 @@ export class TraceLog {
             throw new Error('O parametro passado não é uma instancia de TraceLog');
         }
 
-        // Passar pelos tipos de logs contidos nesse outro Trace
-        for (const tipoLog of tracelogInst.getLogs()) {
 
-            // Encontrar o proximo nome disponivel
-            let isProcurandoNome = true;
-            let idIncremental = 0;
-            let novoNomeTipo = tipoLog.getTipo();
+        /**
+         * @typedef MsgDeLogOrganizar
+         * @property {MensagemDeLogTipo} mensagem - Mensagem de log
+         * @property {LogTipo} tipo - Tipo de log que essa mensagem pertence
+         * @property {Number} sequenciaIdNova - Sequencia em que a mensagem será adicionada
+         */
 
-            while (isProcurandoNome) {
-                let existeLogComNome = this.#logs.find(logTipo => logTipo.getTipo() == novoNomeTipo);
+        /**
+         * Armazena todas as mensagens do tracer anterior em sequencia que elas foram adicionadas independente do tipo do log
+         * @type {MsgDeLogOrganizar[]}
+         */
+        let mensagensEmOrdemDoTracer = [];
 
-                // Se já existir, adicionar um incremental
-                if (existeLogComNome != undefined) {
-                    idIncremental++;
-                    novoNomeTipo = `${tipoLog.getTipo()} (Cópia ${idIncremental})`;
-                } else {
-                    // Se não existir, nome pode ser usado
-                    isProcurandoNome = false;
-                }
-            }
-
-            let novoTracerAppend = new LogTipo(this, novoNomeTipo);
-            this.#logs.push(novoTracerAppend);
-
-            // Atribuir o novo ID a partir do incremental atual
-            for (const mensagemDoTipo of tipoLog.getMensagens()) {
-                novoTracerAppend.add(mensagemDoTipo.mensagem, mensagemDoTipo.data);
+        for (const mensagemTipo of tracelogInst.getLogs()) {
+            for (const mensagem of mensagemTipo.getMensagens()) {
+                mensagensEmOrdemDoTracer.push({
+                    mensagem: mensagem,
+                    tipo: mensagemTipo
+                });
             }
         }
+
+        // Ordenar as mensagens em ordem de sequencia que foram adicionadas
+        mensagensEmOrdemDoTracer.sort((a, b) => a.mensagem.sequencia - b.mensagem.sequencia);
+
+        // Agora passo por cada uma e adiciono em seu devido tipo de Log com uma nova numeração respeitando sua ordem anterior
+        for (const mensagemDeLog of mensagensEmOrdemDoTracer) {
+
+            let logTipoPertencente = this.#logs.find(logTipo => logTipo.getTipo() == mensagemDeLog.tipo.getTipo());
+
+            // Se o log tipo não existir, adicionar 
+            if (logTipoPertencente == undefined) {
+
+                logTipoPertencente = this.addTipo(mensagemDeLog.tipo.getTipo());
+                mensagemDeLog.sequenciaIdNova = logTipoPertencente.getSequenciaID();
+            }
+
+            // Adicionar a mensagem ao tipo de log
+            logTipoPertencente.add(mensagemDeLog.mensagem.mensagem, mensagemDeLog.mensagem.data);
+        }
+
+        // Passar pelos tipos de logs contidos nesse outro Trace, do mais antigo pro mais novo
+        // for (const tipoLog of tracelogInst.getLogs().sort((a, b) => a.getSequenciaID() - b.getSequenciaID())) {
+
+        //     // Encontrar o proximo nome disponivel
+        //     let isProcurandoNome = true;
+        //     let idIncremental = 0;
+        //     let novoNomeTipo = tipoLog.getTipo();
+
+        //     while (isProcurandoNome) {
+        //         let existeLogComNome = this.#logs.find(logTipo => logTipo.getTipo() == novoNomeTipo);
+
+        //         // Se já existir, adicionar um incremental
+        //         if (existeLogComNome != undefined) {
+        //             idIncremental++;
+        //             novoNomeTipo = `${tipoLog.getTipo()} (Cópia ${idIncremental})`;
+        //         } else {
+        //             // Se não existir, nome pode ser usado
+        //             isProcurandoNome = false;
+        //         }
+        //     }
+
+        //     let novoTracerAppend = new LogTipo(this, novoNomeTipo);
+        //     this.#logs.push(novoTracerAppend);
+
+        //     // Atribuir o novo ID a partir do incremental atual
+        //     for (const mensagemDoTipo of tipoLog.getMensagens()) {
+        //         novoTracerAppend.add(mensagemDoTipo.mensagem, mensagemDoTipo.data);
+        //     }
+        // }
 
         return this;
     }
@@ -126,10 +198,12 @@ export class TraceLog {
                 }
             }
 
+            sequenciasDeTiposLogs.reverse();
+
             for (const mensagem of logTipo.getMensagens()) {
                 mensagensOrdenadas.push({
                     sequenciaId: mensagem.sequencia,
-                    sequenciaDoTipoLog: sequenciasDeTiposLogs.reverse(),
+                    sequenciaDoTipoLog: sequenciasDeTiposLogs,
                     sequenciaTipo: logTipo.getTipo(),
                     data: mensagem.data,
                     mensagem: mensagem.mensagem
@@ -237,6 +311,10 @@ class LogTipo {
             sequencia: this.#instanciaTracer.incrementadorMensagemProximo(),
             mensagem: conteudoMsg,
         })
+
+        this.#instanciaTracer.disparaNovaMensagemAdicionada(this.#mensagens[this.#mensagens.length - 1]);
+
+        return this;
     }
 
     /**
@@ -247,39 +325,39 @@ class LogTipo {
     }
 }
 
-let traceLog = new TraceLog();
+// let traceLog = new TraceLog();
 
-const logBuff = traceLog.addTipo('EtherNetIP Bufers');
+// const logBuff = traceLog.addTipo('EtherNetIP Bufers');
 
-logBuff.add(`Iniciando criação do buffer`)
-logBuff.add(`Ajeitando um bagulho`)
-logBuff.add(`Ajeitando outro bagulho`)
-logBuff.add(`Ajeitando mais um bagulho`)
+// logBuff.add(`Iniciando criação do buffer`)
+// logBuff.add(`Ajeitando um bagulho`)
+// logBuff.add(`Ajeitando outro bagulho`)
+// logBuff.add(`Ajeitando mais um bagulho`)
 
-const logGeraTeste = new TraceLog();
+// const logGeraTeste = new TraceLog();
 
-const logTeste = logGeraTeste.addTipo('Gerador Teste')
+// const logTeste = logGeraTeste.addTipo('Gerador Teste')
 
-logTeste.add(`Iniciando teste`)
-logTeste.add(`Teste 1`)
-logTeste.add(`Teste 2`)
-logTeste.add(`Teste 3`)
-logTeste.add(`Teste 4`)
+// logTeste.add(`Iniciando teste`)
+// logTeste.add(`Teste 1`)
+// logTeste.add(`Teste 2`)
+// logTeste.add(`Teste 3`)
+// logTeste.add(`Teste 4`)
 
-const logCabra = new TraceLog();
-const logCobraTeste = logCabra.addTipo('Cobra Teste');
+// const logCabra = new TraceLog();
+// const logCobraTeste = logCabra.addTipo('Cobra Teste');
 
-logCobraTeste.add('Meeeeeeh')
-logCobraTeste.add('Meeeeeeh 2')
-logCobraTeste.add('Meeeeeeh 3')
+// logCobraTeste.add('Meeeeeeh')
+// logCobraTeste.add('Meeeeeeh 2')
+// logCobraTeste.add('Meeeeeeh 3')
 
-logGeraTeste.appendTraceLog(logCabra);
+// logGeraTeste.appendTraceLog(logCabra);
 
-traceLog.appendTraceLog(logGeraTeste);
+// traceLog.appendTraceLog(logGeraTeste);
 
-logBuff.add(`Finalizando criação do buffer`)
+// logBuff.add(`Finalizando criação do buffer`)
 
-let logmsg = traceLog.getHistoricoOrdenado()
+// let logmsg = traceLog.getHistoricoOrdenado()
 
-console.log(logmsg);
+// console.log(logmsg);
 
