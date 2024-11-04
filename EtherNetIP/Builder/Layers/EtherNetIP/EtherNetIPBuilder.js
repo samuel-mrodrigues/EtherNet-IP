@@ -159,7 +159,7 @@ export class EtherNetIPLayerBuilder {
      * Builda o layer para corresponder ao Command Specific Data de um comando Register Session
      * @param {Object} parametrosRegisterSession - Informar alguns parametros de inicio para instanciar o Register Session
      * @param {Number} parametrosRegisterSession.protocolVersion - Protocolo de encapsulamento
-     * @param {Number} parametrosRegisterSession.optionFlags - Flags de opções
+     * @param {Buffer} parametrosRegisterSession.optionFlags - Flags de opções
      * @returns {CommandSpecificDataRegisterSessionBuilder}
      */
     buildRegisterSession(parametrosRegisterSession) {
@@ -266,9 +266,9 @@ export class EtherNetIPLayerBuilder {
         buffCabecalho.writeUInt32LE(0x000000, 8);
         tracerGeraBuffer.add(`Setando o Status como ${statusSucesso} (${numeroToHex(statusSucesso, 4)}) no offset 8`);
 
-        // Próximos 8 bytes é o contexto meu atual pro dispositivo remoto saber. Eu não sei oq é isso ainda então só seto pra 0
+        // Próximos 8 bytes é o contexto livre que pode ser customizado pelo usuario e é retornado pelas respostas do dispositivo remoto
         // let contextoId = this.#campos.header.senderContext;
-        let contextoId = 0x0000000000000000;
+        let contextoId = this.#campos.header.senderContext.readBigUInt64LE(0);
         buffCabecalho.writeBigUInt64LE(BigInt(contextoId), 12);
         tracerGeraBuffer.add(`Setando o Sender Context como ${contextoId} (${numeroToHex(contextoId, 8)}) no offset 12`);
 

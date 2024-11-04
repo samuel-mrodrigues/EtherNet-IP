@@ -121,6 +121,10 @@ export class SingleServicePacketParser {
             erro: {
                 descricao: ''
             },
+            /**
+             * Detalhes do processamento do Buffer para debug
+             * @type {TraceLog}
+             */
             tracer: undefined
         }
 

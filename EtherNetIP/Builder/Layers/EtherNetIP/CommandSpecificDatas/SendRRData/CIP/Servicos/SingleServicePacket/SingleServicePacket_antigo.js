@@ -18,13 +18,24 @@ export class SingleServicePacketServiceBuilder {
          */
         atributoNome: '',
         /**
-         * A classe generica permite customizar o comando a ser enviado ao dispositivo
+         * Se o tipo do serviço for pra pegar algum atributo, contém detalhes adicionais para enviar no CIP Class Generic especifico
          */
-        CIPGenericClass: {
+        getAtribute: {
+            nome: undefined
+        },
+        /**
+         * Se o tipo do serviço for pra setar algum atributo do path final, contém o que vai ser setado pra enviar no CIP Class Generic
+         */
+        setAttribute: {
+            nome: undefined,
             /**
-             * Buffer para appendar ao fim do Request Path para o serviço
+             * O Data Type do tipo do Path final(que por exemplo no caso seria a tag)
              */
-            buffer: undefined
+            datatype: undefined,
+            /**
+             * O novo valor deve ser aplicado
+             */
+            valor: undefined
         }
     }
 
@@ -50,22 +61,6 @@ export class SingleServicePacketServiceBuilder {
     }
 
     /**
-     * Obter o buffer do CIP Generic Data
-     */
-    getCIPGenericData() {
-        return this.#campos.CIPGenericClass.buffer;
-    }
-
-    /**
-     * Seta o Buffer do CIP Generic Data
-     * @param {Buffer} buffer - Buffer do CIP Generic Data
-     */
-    setCIPGenericDataBuffer(buffer) {
-        if (buffer == undefined) throw new Error('Buffer do CIP Generic Data deve ser informado');
-        if (Buffer.isBuffer(buffer) == false) throw new Error('Buffer do CIP Generic Data deve ser um Buffer');
-    }
-
-    /**
      * Define o codigo de serviço do Single Service Packet, que no caso seria um Get ou Set
      * @param {Number} codigo - Código valido do serviço Single Service Packet
      */
@@ -81,7 +76,6 @@ export class SingleServicePacketServiceBuilder {
      * Define o serviço como um Get Attribute
      * @param {Object} propriedades - Propriedades para incluir no Get Attribute
      * @param {String} propriedades.nome - O nome do recurso que vai ser solicitado no dispositivo remoto
-     * @param {Buffer} propriedades.CIPGenericBuffer - O buffer do CIP Generic Data que vai ser enviado no Get Attribute
      */
     setAsGetAttribute(propriedades) {
         this.setCodigoServico(SingleServiceCodes.Get.hex);
@@ -91,35 +85,29 @@ export class SingleServicePacketServiceBuilder {
         if (propriedades.nome == undefined) throw new Error('O nome do recurso que deseja solicitar deve ser informado');
         if (typeof propriedades.nome != 'string') throw new Error('O nome do recurso que deseja solicitar deve ser uma string');
 
-        if (propriedades.CIPGenericBuffer == undefined) throw new Error('O buffer do CIP Generic Data deve ser informado');
-        if (Buffer.isBuffer(propriedades.CIPGenericBuffer) == false) throw new Error('O buffer do CIP Generic Data deve ser um Buffer');
-
         this.#campos.atributoNome = propriedades.nome;
-
-        this.#campos.CIPGenericClass.buffer = propriedades.CIPGenericBuffer;
     }
 
     /**
      * Define o serviço como um Set Attribute
      * @param {Object} propriedades - Propriedades para incluir no Set Attribute
      * @param {String} propriedades.nome - O nome do recurso que vai ser solicitado no dispositivo remoto
-     * @param {Number} propriedades.CIPGenericBuffer - O buffer do CIP Generic Data que vai ser enviado no Set Attribute
+     * @param {Number} propriedades.datatype - O tipo do Data Type do valor que vai ser setado
+     * @param {Number} propriedades.valor - O valor que vai ser setado-
      */
     setAsSetAttribute(propriedades) {
         this.setCodigoServico(SingleServiceCodes.Set.hex);
 
         // Verificar se o usuario informou as propriedades necessarias
         if (propriedades == undefined) throw new Error('Propriedades para Set Attribute não foram informadas. É necessario informar o DataType e o novo valor desejado');
+        if (propriedades.datatype == undefined) throw new Error('O DataType deve ser informado');
+        if (getDataType(propriedades.datatype) == undefined) throw new Error(`O DataType informado '${propriedades.datatype}' é inválido`);
+        if (propriedades.nome == undefined) throw new Error('O nome do recurso que deseja setar deve ser informado');
 
-        if (propriedades.nome == undefined) throw new Error('O nome do recurso que deseja solicitar deve ser informado');
-        if (typeof propriedades.nome != 'string') throw new Error('O nome do recurso que deseja solicitar deve ser uma string');
-
-        if (propriedades.CIPGenericBuffer == undefined) throw new Error('O buffer do CIP Generic Data deve ser informado');
-        if (Buffer.isBuffer(propriedades.CIPGenericBuffer) == false) throw new Error('O buffer do CIP Generic Data deve ser um Buffer');
+        this.#campos.setAttribute.datatype = propriedades.datatype;
+        this.#campos.setAttribute.valor = propriedades.valor;
 
         this.#campos.atributoNome = propriedades.nome;
-
-        this.#campos.CIPGenericClass.buffer = propriedades.CIPGenericBuffer;
         return this;
     }
 
@@ -206,14 +194,89 @@ export class SingleServicePacketServiceBuilder {
 
         // Se for um Get, eu appendo um array de 2 bytes vazio ao CIP Generic Data
         if (this.isGetAttribute()) {
-            bufferCIPGenericData = this.#campos.CIPGenericClass.buffer
+            bufferCIPGenericData = Buffer.from([0x01, 0x00]);
 
             tracerLogBuff.add(`Criando o buffer do CIP Generic Data para o serviço Get Attribute de ${bufferCIPGenericData.length} bytes: ${hexDeBuffer(bufferCIPGenericData)}`);
         } else {
             // Se for um Set, eu preciso atribuir o valor que vai ser setado
-            bufferCIPGenericData = this.#campos.CIPGenericClass.buffer;
 
-            tracerLogBuff.add(`Criando o buffer do CIP Generic Data para o serviço Set Attribute de ${bufferCIPGenericData.length} bytes: ${hexDeBuffer(bufferCIPGenericData)}`);
+            // Pega o tipo do Data Type definido
+            let dataTypeDefinido = getDataType(this.#campos.setAttribute.datatype);
+
+            // Os tipos numericos começam do 193 a 202
+            let isTipoNumero = dataTypeDefinido.codigo >= 193 && dataTypeDefinido.codigo <= 197;
+            if (isTipoNumero) {
+
+                // Se não foi informado o valor, no numero ele será por padrão 0;
+                if (this.#campos.setAttribute.valor == undefined) {
+                    this.#campos.setAttribute.valor = 0;
+                }
+
+                tracerLogBuff.add(`O valor informado para o Set Attribute é ${this.#campos.setAttribute.valor}`);
+
+                // Aloco 4 bytes, 2 pro tipo do Data Type e 2 pro tamanho;
+                const bufferTipoDataType = Buffer.alloc(4);
+
+                tracerLogBuff.add(`Criando o buffer de Data Type com ${bufferTipoDataType.length} bytes`);
+
+                // Escrevo os primeiros 2 bytes pro tipo do Data Type
+                bufferTipoDataType.writeUInt16LE(dataTypeDefinido.codigo, 0);
+                tracerLogBuff.add(`Setando campo de Data Type para ${dataTypeDefinido.codigo} (${dataTypeDefinido.descricao}) no offset 0`);
+
+                // Os próximos 2 bytes, por algum motivo que não sei, se Data Type for um numero, o tamanho é 1
+                bufferTipoDataType.writeUInt16LE(1, 2);
+                tracerLogBuff.add(`Setando campo de tamanho do Data Type para 1 no offset 2`);
+
+                tracerLogBuff.add(`Buffer do Data Type gerado com sucesso: ${hexDeBuffer(bufferTipoDataType)}`);
+
+                // Alocar o tamanho do buffer necessario pra alocar o novo valor
+                const bufferDataNovoValor = Buffer.alloc(dataTypeDefinido.tamanho);
+                tracerLogBuff.add(`Criando o buffer para armazenar o novo valor com ${bufferDataNovoValor.length} bytes`);
+
+                // Como o buffer é dependedo do tipo, verifico o tamanho e uso o Write apropriado
+                try {
+                    switch (dataTypeDefinido.tamanho) {
+                        case 1: {
+                            tracerLogBuff.add(`Setando o 1 byte do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
+                            bufferDataNovoValor.writeUInt8(this.#campos.setAttribute.valor, 0);
+                            break;
+                        }
+                        case 2: {
+                            tracerLogBuff.add(`Setando o 2 bytes do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
+                            bufferDataNovoValor.writeUInt16LE(this.#campos.setAttribute.valor, 0);
+                            break;
+                        }
+                        case 4: {
+                            tracerLogBuff.add(`Setando o 4 bytes do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
+                            bufferDataNovoValor.writeUInt32LE(this.#campos.setAttribute.valor, 0);
+                            break;
+                        }
+                        case 8: {
+                            tracerLogBuff.add(`Setando o 8 bytes do novo valor para '${this.#campos.setAttribute.valor}' no offset 0`);
+                            bufferDataNovoValor.writeBigInt64LE(this.#campos.setAttribute.valor, 0);
+                            break;
+                        }
+                    }
+                } catch (ex) {
+                    retBuff.erro.descricao = `Erro ao escrever o Write no Buffer de '${dataTypeDefinido.tamanho}' Bytes: ${ex.message}`;
+
+                    tracerLogBuff.add(`Ocorreu um erro no try catch ao escrever no buffer do novo valor. Mensagem: ${ex.message}`);
+                    return retBuff;
+                }
+
+                tracerLogBuff.add(`Buffer do novo valor gerado com sucesso: ${hexDeBuffer(bufferDataNovoValor)}`);
+
+                // Concatenar o buffer do tipo do Data Type com o buffer do novo valor
+                bufferCIPGenericData = Buffer.concat([bufferTipoDataType, bufferDataNovoValor]);
+
+                tracerLogBuff.add(`Buffer do CIP Generic Data(Buffers de Data Type + Novo valor) gerado com sucesso: ${hexDeBuffer(bufferCIPGenericData)}`);
+            } else {
+                // Fazer a tratativa pra escrever em tipos diferentes além de numeros depois, por enquanto recusar
+
+                retBuff.erro.descricao = `Data Type informado '${dataTypeDefinido.descricao}' não é suportado ainda`;
+                tracerLogBuff.add(`Informado um Data Type não suportado: ${dataTypeDefinido.descricao}. A criação será cancelada e o erro será retornado`);
+                return retBuff;
+            }
         }
 
         tracerLogBuff.add(`Buffer do CIP Generic Data gerado com sucesso: ${hexDeBuffer(bufferCIPGenericData)}`);
@@ -241,6 +304,13 @@ export class SingleServicePacketServiceBuilder {
      */
     isSetAttribute() {
         return this.#campos.codigoServico == SingleServiceCodes.Set.hex;
+    }
+
+    /**
+     * Obter o Get Attribute configurado
+     */
+    getSetAttribute() {
+        return this.#campos.setAttribute;
     }
 }
 

@@ -83,7 +83,7 @@ export class EtherNetIPLayerParser {
              */
             statusCodigo: undefined,
             /**
-             * O Sender Context original que o dispositivo recebeu e devolveu novamente
+             * O Sender Context de 8 bytes original que o dispositivo recebeu e devolveu novamente
              * @type {Buffer}
              */
             contextoRemetente: undefined,
@@ -266,6 +266,7 @@ export class EtherNetIPLayerParser {
             },
             /**
              * O tracer contém os detalhes das etapas de geração do Buffer
+             * @type {TraceLog}
              */
             tracer: undefined
         }
@@ -301,6 +302,13 @@ export class EtherNetIPLayerParser {
      */
     getSessionHandlerID() {
         return this.#campos.header.sessaoHandlerID;
+    }
+
+    /**
+     * Retorna o contexto setado no cabeçalho EtherNet/IP
+     */
+    getSenderContext() {
+        return this.#campos.header.contextoRemetente;
     }
 
     /**

@@ -218,7 +218,7 @@ export class CIPSendRRDataBuilder {
                 let gerarBufferCIP = instanciaCIPClasse.criarBuffer();
 
                 retornoBuffer.tracer.appendTraceLog(gerarBufferCIP.tracer);
-                
+
                 if (!gerarBufferCIP.isSucesso) {
                     retornoBuffer.erro.descricao = `Erro ao gerar o buffer da Classe Generica: ${gerarBufferCIP.erro.descricao}`;
 

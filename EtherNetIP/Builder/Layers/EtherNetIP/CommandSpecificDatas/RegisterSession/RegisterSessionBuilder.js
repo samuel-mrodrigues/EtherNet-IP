@@ -39,7 +39,7 @@ export class CommandSpecificDataRegisterSessionBuilder {
      * Instanciar o builder
      * @param {Object} parametros - Opcionalmente iniciar o construtor já com os campos desejados no RegisterSession
      * @param {Number} parametros.protocolVersion - Versão do protocolo de encapsulamento. Segundo o manual sempre deve ser 1
-     * @param {Number} parametros.optionFlags - Flags de opções envidas para configurar a sessão. Não sei exatamente oq é ainda, mas geralmente é sempre 0
+     * @param {Buffer} parametros.optionFlags - Flags de opções envidas para configurar a sessão. Não sei exatamente oq é ainda, mas geralmente é sempre 0
      */
     constructor(parametros) {
 
