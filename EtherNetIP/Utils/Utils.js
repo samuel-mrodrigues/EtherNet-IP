@@ -21,7 +21,6 @@ export function numeroToHex(numero, bytes) {
 }
 
 
-
 /**
  * Substitui placeholders em um template com informações de uma data
  * @param {Date} date 
