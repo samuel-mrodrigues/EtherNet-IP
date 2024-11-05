@@ -103,7 +103,7 @@ export class SingleServicePacketServiceBuilder {
      * Define o serviço como um Set Attribute
      * @param {Object} propriedades - Propriedades para incluir no Set Attribute
      * @param {String} propriedades.nome - O nome do recurso que vai ser solicitado no dispositivo remoto
-     * @param {Number} propriedades.CIPGenericBuffer - O buffer do CIP Generic Data que vai ser enviado no Set Attribute
+     * @param {Buffer} propriedades.CIPGenericBuffer - O buffer do CIP Generic Data que vai ser enviado no Set Attribute
      */
     setAsSetAttribute(propriedades) {
         this.setCodigoServico(SingleServiceCodes.Set.hex);

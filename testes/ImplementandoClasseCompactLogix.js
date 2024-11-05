@@ -4,6 +4,7 @@ import { EmissorEvento } from "./Utils/EmissorEvento.js";
 import { EtherNetIPLayerBuilder } from "../EtherNetIP/Builder/Layers/EtherNetIP/EtherNetIPBuilder.js";
 import { EtherNetIPLayerParser } from "../EtherNetIP/Parser/Layers/EtherNetIP/EtherNetIPParser.js";
 import { hexDeBuffer } from "../EtherNetIP/Utils/Utils.js";
+import { CIPGeneralStatusCodes } from "../EtherNetIP/Utils/CIPRespondeCodes.js";
 
 /**
  * Uma classe auxiliar para tratar com a comunicação para o protocolo EtherNet IP(Industrial Protocol)
@@ -739,12 +740,21 @@ export class CompactLogixRockwell {
      * @property {Number} codigo - Codigo do DataType no controlador
      * @property {String} descricao - Descrição do DataType
      * @property {Number} tamanho - Tamanho do tipo do DataType em bytes 
+     * @property {Boolean} isSigned - Se o DataType é um número com sinal
      */
 
     /**
-     * @typedef DataTypeTag
-     * @property 
+     * @typedef DataTypeTagStruct
+     * @property {Number} codigoTipoStruct - O código de identificação desse tipo de Struct. Todas as tags Struct possuem o Data Type Code 672, o codigoStruct é um identificador único para cada tipo de Struct
+     * @property {String} descricao - Descrição do DataType
      */
+
+    /**
+     * @typedef DataTypeTagStructASCIIString82
+     * @property {String} stringConteudo - Conteudo da string
+     * @property {Number} tamanho - Tamanho total da string em bytes
+     */
+
 
     #dataTypes = {
         /**
@@ -752,50 +762,95 @@ export class CompactLogixRockwell {
          * Contém o código do tipo de dado, a descrição e o tamanho em bytes
          */
         atomicos: {
+            /**
+             * Boolean, tamanho 1, unsigned 
+             */
             BOOL: {
                 codigo: 193,
                 descricao: 'Boolean',
-                tamanho: 1
+                tamanho: 1,
+                isSigned: false
             },
+            /**
+             * Small Int, tamanho 1, signed
+             */
             SINT: {
                 codigo: 194,
                 descricao: 'Small Int',
-                tamanho: 1
+                tamanho: 1,
+                isSigned: true
             },
+            /**
+             * Int, tamanho 2, signed
+             */
             INT: {
                 codigo: 195,
                 descricao: 'Int',
-                tamanho: 2
+                tamanho: 2,
+                isSigned: true
             },
+            /**
+             * Double Int, tamanho 4, signed
+             */
             DINT: {
                 codigo: 196,
                 descricao: 'Double Int',
-                tamanho: 4
+                tamanho: 4,
+                isSigned: true
             },
+            /**
+             * Long Int, tamanho 8, signed
+             */
             LINT: {
                 codigo: 197,
                 descricao: 'Long Int',
-                tamanho: 8
+                tamanho: 8,
+                isSigned: true
             },
+            /**
+             * Unsigned Small Int, tamanho 1, unsigned
+             */
             USINT: {
                 codigo: 198,
                 descricao: 'Unsigned Small Int',
-                tamanho: 1
+                tamanho: 1,
+                isSigned: false
             },
+            /**
+             * Unsigned Int, tamanho 2, unsigned
+             */
             UINT: {
                 codigo: 199,
                 descricao: 'Unsigned Int',
-                tamanho: 2
+                tamanho: 2,
+                isSigned: false
             },
+            /**
+             * Unsigned Double Int, tamanho 4, unsigned
+             */
             UDINT: {
                 codigo: 200,
                 descricao: 'Unsigned Double Int',
-                tamanho: 4
+                tamanho: 4,
+                isSigned: false
             },
+            /**
+             * Unsigned Long Int, tamanho 8, unsigned
+             */
             REAL: {
                 codigo: 202,
                 descricao: 'Real',
-                tamanho: 4
+                tamanho: 4,
+                isSigned: true
+            }
+        },
+        /**
+         * Structs são tipos "objetos", que contém apenas mais que um simples numero
+         */
+        structs: {
+            ASCIISTRING82: {
+                descricao: 'String ASCII de 82 bytes',
+                codigoTipoStruct: 4046
             }
         }
     }
@@ -824,6 +879,13 @@ export class CompactLogixRockwell {
     }
 
     /**
+     * Retorna os Data Types disponiveis do controlador CompactLogix
+     */
+    getDataTypes() {
+        return this.#dataTypes;
+    }
+
+    /**
      * Retornar o Socket de comunicação com o dispositivo EtherNet/IP
      */
     getENIPSocket() {
@@ -831,35 +893,77 @@ export class CompactLogixRockwell {
     }
 
     /**
-     * Realizar a leitura de uma tag do CompactLogix
+     * Realizar a leitura de uma unica tag do CompactLogix
      * @param {String} tag - Tag a ser lida
      */
     async lerTag(tag) {
+        if (tag == undefined) throw new Error('Tag a ser lida não informada');
+        if (typeof tag != 'string') throw new Error('Tag a ser lida deve ser uma string');
+        if (tag == '') throw new Error('Tag a ser lida não pode ser vazia');
+
         const retornoTag = {
             /**
              * Se deu sucesso em realizar a leitura da tag 
              */
             isSucesso: false,
+            tagSolicitada: tag,
             /**
              * Se sucesso, contém os dados da tag lida
              */
             sucesso: {
-                /**
-                 * Se o valor lido é numerico(DataType de 193 a 202)
-                 */
-                isNumerico: false,
-                /**
-                 * Se isNumerico, contém os detalhes do valor lido
-                 */
-                numerico: {
+                msDetalhes: {
                     /**
-                     * O valor númerico
+                     * Data atual em millisegundos de quando a leitura foi iniciada e o pacote ENIP foi enviada
+                     * @type {Number}
                      */
-                    valor: undefined,
+                    dateTimeInicio: new Date().getTime(),
                     /**
-                     * O DataType do valor lido
+                     * Data atual em millisegundos de quando o pacote ENIP foi recebido e parseado
+                     * @type {Number}
                      */
-                    dataType: undefined
+                    dateTimeFim: undefined,
+                    /**
+                     * Tempo em ms total de leitura da tag
+                     */
+                    totalMsLeitura: undefined
+                },
+                tag: {
+                    /**
+                     * Se o valor lido é atomico(numeros DataType de 193 a 202)
+                     */
+                    isAtomico: false,
+                    /**
+                     * Se isAtomico, contém os detalhes do valor lido
+                     */
+                    atomico: {
+                        /**
+                         * O valor númerico
+                         */
+                        valor: undefined,
+                        /**
+                         * O DataType do valor lido
+                         */
+                        dataType: undefined
+                    },
+                    /**
+                     * Se o valor lido é do tipo de uma Struct
+                     */
+                    isStruct: false,
+                    /**
+                     * Se Struct, contém os detalhes da Struct
+                     */
+                    struct: {
+                        /**
+                         * O Data Type da Struct lido
+                         * @type {DataTypeTagStruct}
+                         */
+                        dataTypeStruct: undefined,
+                        /**
+                         * O valor da Struct lido. Esse campo é dinamico depenendo do tipo da Struct
+                         * @type {DataTypeTagStructASCIIString82}
+                         */
+                        valor: undefined
+                    }
                 }
             },
             /**
@@ -908,7 +1012,7 @@ export class CompactLogixRockwell {
                     isDemorouResposta: false
                 },
                 /**
-                 * Se o erro ocorrido foi devido a algum dos layers do pacote ENIP. É somente para erros de parse dos Buffers recebidos e suas camadas e garantir que os bytes recebidos estão em conformidade. Por exemplo
+                 * Se o erro ocorrido foi devido a algum dos layers do pacote ENIP recebido estarem incorretos. É somente para erros de parse dos Buffers recebidos e suas camadas e garantir que os bytes recebidos estão em conformidade. Por exemplo
                  * se foi requisitado ler uma tag que não existe, o controlador vai responder com um status de invalido no SingleServicePacket, então não caira em tratativas dos erros, e sim de status.
                  */
                 isErroLayers: false,
@@ -995,6 +1099,10 @@ export class CompactLogixRockwell {
         // Enviar o pacote ENIP
         let statusEnviaENIP = await this.getENIPSocket().enviarENIP(layerENIP);
 
+        retornoTag.sucesso.msDetalhes.dateTimeFim = new Date().getTime();
+
+        retornoTag.sucesso.msDetalhes.totalMsLeitura = retornoTag.sucesso.msDetalhes.dateTimeFim - retornoTag.sucesso.msDetalhes.dateTimeInicio;
+
         // Analisar se o envio e o recebimento dos pacotes ENIPs obtiveram sucesso
         if (!statusEnviaENIP.isSucesso) {
             // Se deu erro ao processar o ENIP, verificar.
@@ -1037,6 +1145,8 @@ export class CompactLogixRockwell {
         // O comando que deve ser retornado é um SendRRData. Na teoria isso nunca deveria cair aqui pq a resposta do ENIP sempre deve corresponder a solicitação original, se enviou um SendRRData, deve receber um SendRRData
         if (!ENIPResposta.isSendRRData()) {
             retornoTag.erro.descricao = 'O pacote de resposta não é um SendRRData.';
+            retornoTag.erro.isErroLayers = true;
+            retornoTag.erro.erroLayers.isSendRRDataInvalido = true;
             return retornoTag;
         }
 
@@ -1057,6 +1167,9 @@ export class CompactLogixRockwell {
         // Obrigatoriamente deve ser um serviço CIP que contém os dados encapsulados da informação de leitura da tag(já que a comunicação no momento com o Compact tá sendo via CIP)
         if (!ENIPSendRRData.isServicoCIP()) {
             retornoTag.erro.descricao = 'O pacote de resposta não contém um serviço CIP';
+
+            retornoTag.erro.isErroLayers = true;
+            retornoTag.erro.erroLayers.isCIPInvalido = true;
             return retornoTag;
         }
 
@@ -1071,10 +1184,80 @@ export class CompactLogixRockwell {
             return retornoTag;
         }
 
+        // Validar o código de status do CIP, pois tem alguns status que são erros fatais e não tem como prosseguir
+        if (ENIPCIP.getStatusCIP().codigo != CIPGeneralStatusCodes.Success.hex) {
+
+            // O erro grave deve ser marcado como true se foi retornado um código de status que invalidou toda a operação e impede de prosseguir com a leitura da tag
+            let isErroGrave = false;
+
+            switch (ENIPCIP.getStatusCIP().codigo) {
+
+                // O Connection Failure é um erro fatal que não tem como prosseguir
+                case CIPGeneralStatusCodes.ConnectionFailure.hex: {
+                    isErroGrave = true;
+                    retornoTag.erro.descricao = `O pacote CIP retornou Connection Failure -- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
+                    break;
+                }
+                // O dispositivo não conseguiu processar a solicitação por falta de recursos
+                case CIPGeneralStatusCodes.ResourceUnavailable.hex: {
+                    isErroGrave = true;
+                    retornoTag.erro.descricao = `O pacote CIP retornou Resource Unavailable -- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
+                    break;
+                }
+                // O Path Segment error não é fatal, o caminho pro Request Path é invalido, então a informação pode ser prosseguida pelo SingleServicePacket adiante
+                case CIPGeneralStatusCodes.PathSegmentError.hex: {
+
+                    break;
+                }
+                // O Partial Transfer não entendi ainda em que situações ocorre, por isso evito de prosseguir
+                case CIPGeneralStatusCodes.PartialTransfer.hex: {
+                    isErroGrave = true;
+                    retornoTag.erro.descricao = `O pacote CIP retornou Partial Transfer(Ainda não é suportado) -- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
+                    break;
+                }
+                // O Connection Lost é um erro fatal que não tem como prosseguir
+                case CIPGeneralStatusCodes.ConnectionLost.hex: {
+                    isErroGrave = true;
+                    retornoTag.erro.descricao = `O pacote CIP retornou Connection Lost -- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
+                    break;
+                }
+                // Reply Data Too Large é um erro fatal também pq não terei os dados pra prosseguir com o processamento
+                case CIPGeneralStatusCodes.ReplyDataTooLarge.hex: {
+                    isErroGrave = true;
+                    retornoTag.erro.descricao = `O pacote CIP retornou Reply Data Too Large -- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
+                    break;
+                }
+                // Como o valor vai ta quebrado pela metade, não aceito a resposta e marco como erro grave
+                case CIPGeneralStatusCodes.FragmentationOfAPrimitiveValue.hex: {
+                    isErroGrave = true;
+                    retornoTag.erro.descricao = `O pacote CIP retornou Fragmentation Of A Primitive Value -- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
+                    break;
+                }
+                // Qualquer outro erro diferentão estranho que eu não conheço, marcar como erro grave
+                default: {
+                    retornoTag.erro.descricao = `O pacote CIP retornou com o status desconhecido ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
+                    isErroGrave = true;
+                    break;
+                }
+            }
+
+            // Se erro grave tiver setado, retornar como erro de status invalido
+            if (isErroGrave) {
+
+                retornoTag.erro.isStatusInvalido = true;
+                retornoTag.erro.statusInvalido.codigoDeErro = ENIPCIP.getStatusCIP().codigo;
+                retornoTag.erro.statusInvalido.descricaoStatus = ENIPCIP.getStatusCIP().descricao;
+                return retornoTag;
+            }
+        }
+
         // Por último, o pacote CIP deve encapsular o Single Service Packet que foi a informação da tag requisitada
 
         if (!ENIPCIP.isSingleServicePacket()) {
             retornoTag.erro.descricao = 'O pacote de resposta não contém um Single Service Packet';
+
+            retornoTag.erro.isErroLayers = true;
+            retornoTag.erro.erroLayers.isSingleServicePacket = true;
             return retornoTag;
         }
         const ENIPSingleService = ENIPCIP.getAsSingleServicePacket();
@@ -1112,11 +1295,25 @@ export class CompactLogixRockwell {
         }
 
         // Finalmente, se tudo deu certo, estou com o valor em mãos
-        if (converteBufferPraValor.conversao.isNumerico) {
-            retornoTag.sucesso.isNumerico = true;
+        if (converteBufferPraValor.conversao.isAtomico) {
+            retornoTag.sucesso.tag.isAtomico = true;
 
-            retornoTag.sucesso.numerico.valor = converteBufferPraValor.conversao.numerico.valor;
-            retornoTag.sucesso.numerico.dataType = converteBufferPraValor.conversao.numerico.dataType;
+            retornoTag.sucesso.tag.atomico.valor = converteBufferPraValor.conversao.atomico.valor;
+            retornoTag.sucesso.tag.atomico.dataType = converteBufferPraValor.conversao.atomico.dataType;
+        } else if (converteBufferPraValor.conversao.isStruct) {
+
+            retornoTag.sucesso.tag.isStruct = true;
+
+            retornoTag.sucesso.tag.struct.dataTypeStruct = converteBufferPraValor.conversao.struct.dataType;
+            retornoTag.sucesso.tag.struct.valor = {
+                stringConteudo: converteBufferPraValor.conversao.struct.structData.stringConteudo,
+                tamanho: converteBufferPraValor.conversao.struct.structData.tamanho
+            }
+        } else {
+            retornoTag.erro.descricao = 'O valor lido não é nem atomico nem uma struct';
+            retornoTag.erro.isConverterValor = true;
+
+            return retornoTag;
         }
 
         retornoTag.isSucesso = true;
@@ -1124,12 +1321,601 @@ export class CompactLogixRockwell {
     }
 
     /**
-     * Retorna informações de um Data Type
+     * @typedef EscreveTagStructASCIIString82
+     * @property {String} string - String a ser escrita
+     */
+
+    /**
+     * Realizar a escrita de uma unica tag do CompactLogix
+     * @param {String} tag - Tag a ser escrita
+     * @param {Object} dataType - Data Type da tag para escrever
+     * @param {Boolean} dataType.isAtomico - Se o Data Type é atomico ou não
+     * @param {Object} dataType.atomico - Se atomico, contém os detalhes do valor a ser escrito
+     * @param {Number} dataType.atomico.codigoAtomico - Código do tipo de Data Type a ser escrito
+     * @param {Number} dataType.atomico.valor - Valor a ser escrito
+     * @param {Boolean} dataType.isStruct - Se o Data Type é uma Struct ou não
+     * @param {Object} dataType.struct - Se for uma Struct, contém os detalhes do valor a ser escrito
+     * @param {Number} dataType.struct.codigoStruct - Código do tipo de Struct a ser escrita
+     * @param {EscreveTagStructASCIIString82} dataType.struct.classeStruct - Classe da Struct a ser escrita(ASCIIString82, Timer, etc..)
+     */
+    async escreveTag(tag, dataType) {
+        /**
+         * @typedef EscritaTagStructASCIIString82
+         * @property {String} valor - O valor que foi gravado
+         */
+
+        if (tag == undefined) throw new Error('Tag a ser escrita não informada');
+        if (typeof tag != 'string') throw new Error('Tag a ser escrita deve ser uma string');
+        if (tag == '') throw new Error('Tag a ser escrita não pode ser vazia');
+
+        if (dataType == undefined) throw new Error('Data Type da tag a ser escrita não informado');
+        if (typeof dataType != 'object') throw new Error('Data Type da tag a ser escrita deve ser um objeto');
+
+        const retornoEscrita = {
+            /**
+             * Se a operação de escrita foi bem sucedida.
+             */
+            isSucesso: false,
+            /**
+             * Se sucesso, contém os detalhes da tag escrita
+             */
+            sucesso: {
+                msDetalhes: {
+                    /**
+                     * Data atual em millisegundos de quando a escrita foi iniciada e o pacote ENIP foi enviada
+                     * @type {Number}
+                     */
+                    dateTimeInicio: new Date().getTime(),
+                    /**
+                     * Data atual em millisegundos de quando o pacote ENIP foi recebido e parseado
+                     * @type {Number}
+                     */
+                    dateTimeFim: undefined,
+                    /**
+                     * Tempo em ms total de escrita da tag
+                     */
+                    totalMsEscrita: undefined
+                },
+                tag: {
+                    /**
+                     * Se o valor escrito é atomico(numeros DataType de 193 a 202)
+                     */
+                    isAtomico: false,
+                    /**
+                     * Se isAtomico, contém os detalhes do valor escrito
+                     */
+                    atomico: {
+                        /**
+                         * O valor númerico
+                         */
+                        valor: undefined,
+                        /**
+                         * O DataType do valor lido
+                         * @type {DataTypeTagAtomico}
+                         */
+                        dataType: undefined
+                    },
+                    /**
+                     * Se o valor escrito é do tipo de uma Struct
+                     */
+                    isStruct: false,
+                    /**
+                     * Se Struct, contém os detalhes da Struct
+                     */
+                    struct: {
+                        /**
+                         * O Data Type da Struct lido
+                         * @type {DataTypeTagStruct}
+                         */
+                        dataTypeStruct: undefined,
+                        /**
+                         * O valor da Struct escrito. Esse campo é dinamico depenendo do tipo da Struct
+                         * @type {EscritaTagStructASCIIString82}
+                         */
+                        valor: undefined
+                    }
+                },
+            },
+            /**
+             * Se não sucesso, contém todos os detalhes do erro do ocorrido
+             */
+            erro: {
+                descricao: '',
+                /**
+                 * Se deu erro ao enviar o pacote ENIP
+                 */
+                isEnviarENIP: false,
+                /**
+                 * Se o erro foi causado devido a falha ao enviar o pacote ENIP, contém os detalhes extras desse erro
+                */
+                enviarENIP: {
+                    /**
+                     * Se foi erro ao escrever o pacote ENIP no socket
+                     */
+                    isWriteSocket: false,
+                    /**
+                     * Se foi erro ao gerar o buffer do pacote ENIP
+                     */
+                    isGerarBuffer: false,
+                    /**
+                     * Detalhes do erro ao gerar o Buffer do pacote ENIP se isGerarBuffer for true
+                     */
+                    gerarBuffer: {
+                        /**
+                         * Histórico de logs do erro ao gerar o Buffer do pacote ENIP
+                         */
+                        traceLog: []
+                    }
+                },
+                /**
+                 * Se deu erro ao receber o pacote ENIP
+                 */
+                isReceberENIP: false,
+                /**
+                 * Se o erro foi causado devido a falha ao receber o pacote ENIP, contém os detalhes extras desse erro. Esse erro só verifica pelo campo principal ENIP, os layers encapsulados posteriormente podem ter erros próprios,
+                 * porém a garantia aqui é que o pacote ENIP foi recebido com sucesso
+                */
+                receberENIP: {
+                    /**
+                     * Se foi erro ao receber o pacote ENIP
+                     */
+                    isDemorouResposta: false
+                },
+                /**
+                 * Se o erro foi causado devido a um erro de status, ou seja os layers estão todos em conformidade, porém o dispositivo retornou um status diferente de sucesso para a operação de leitura da tag
+                 */
+                isStatusInvalido: false,
+                /**
+                 * Se isStatusInvalido, contém os detalhes do status invalido
+                 */
+                statusInvalido: {
+                    /**
+                     * A descrição basica do erro original ocorrido
+                     */
+                    descricaoStatus: '',
+                    /**
+                     * Código do erro recebido conforme CIP Response Codes
+                     */
+                    codigoDeErro: undefined,
+                    /**
+                     * Se o erro foi causado por um erro de status, contém os detalhes extras desse erro
+                     */
+                    statusErro: {
+                        /**
+                         * Se o erro foi causado por um erro de status, contém os detalhes extras desse erro
+                         */
+                        descricao: ''
+                    }
+                },
+                /**
+                 * Se o valor informado para escrever não é valido
+                 */
+                isTipoValorInvalido: false,
+                /**
+                 * O Data Type informado é inexistente
+                 */
+                isTipoDataTypeInexistente: false,
+                /**
+                 * Se o erro ocorrido foi devido a algum dos layers do pacote ENIP recebido estarem incorretos. É somente para erros de parse dos Buffers recebidos e suas camadas e garantir que os bytes recebidos estão em conformidade. Por exemplo
+                 * se foi requisitado escrever uma tag que não existe, o controlador vai responder com um status de invalido no SingleServicePacket, então não caira em tratativas dos erros, e sim de status.
+                 */
+                isErroLayers: false,
+                /**
+                 * Se isErroLayers, contém qual layer ocorreu o erro
+                 */
+                erroLayers: {
+                    /**
+                     * Se o layer do SendRRData é valido
+                     */
+                    isSendRRDataInvalido: false,
+                    /**
+                     * Se o erro foi causado por falha ao processar o Buffer SendRRData
+                     */
+                    sendRRDataInvalido: {
+                        /**
+                         * Array de mensagens com o historico de cada etapa do processamento do Buffer, conterá onde ocorreu o erro no Buffer
+                         */
+                        trace: []
+                    },
+                    /**
+                     * Se o layer do CIP é valido
+                     */
+                    isCIPInvalido: false,
+                    /**
+                     * Se o erro foi causado por falha ao processar o Buffer CIP
+                     */
+                    CIPInvalido: {
+                        /**
+                         * Array de mensagens com o historico de cada etapa do processamento do Buffer, conterá onde ocorreu o erro no Buffer
+                         */
+                        trace: []
+                    },
+                    /**
+                     * Se o layer Single Service Packet é valido
+                     */
+                    isSingleServicePacket: false,
+                    /**
+                     * Se o erro foi causado por falha ao processar o Buffer Single Service Packet
+                     */
+                    singleServicePacket: {
+                        /**
+                         * Array de mensagens com o historico de cada etapa do processamento do Buffer, conterá onde ocorreu o erro no Buffer
+                         */
+                        trace: []
+                    }
+                },
+            }
+        }
+
+        const layerENIP = this.getENIPSocket().getNovoLayerBuilder();
+        const layerConnectionManager = layerENIP.buildSendRRData().criarServicoCIP().buildCIPConnectionManager();
+
+        // O Single Service Packet eu configuro a tag solicitada e o valor a ser escrito
+        const layerServicePacket = layerConnectionManager.getCIPMessage().buildSingleServicePacket();
+
+        /**
+         * O Buffer onde vou armazenar a operação de escrita pro CIP Generic Class
+         * @type {Buffer}
+         */
+        let bufferDataTypeEscrita;
+
+        // Pra setar uma tag pelo menos no CompactLogix, o CIP Generic Data deve conter as informações do tipo da Data Type e o valor correspondente. Por isso preciso fazer a tratativa pro Data Type informado
+
+        // Tratamento para Data Types atomicos(numeros)
+        if (dataType.isAtomico) {
+
+            const detalhesDataType = this.getDataTypeAtomico(dataType.atomico.codigoAtomico);
+
+            // Se foi informado um Data Type atomico que não existe.
+            if (detalhesDataType == undefined) {
+                retornoEscrita.erro.isTipoDataTypeInexistente = true;
+                retornoEscrita.erro.descricao = `Data Type atomico informado não existe: ${dataType.atomico.codigoAtomico}`;
+                return retornoEscrita;
+            }
+
+            // Ok, se o Data Type atomico for valido, verificar se o valor informado combina com um numero
+            if (isNaN(dataType.atomico.valor)) {
+                retornoEscrita.erro.isTipoValorInvalido = true;
+                retornoEscrita.erro.descricao = `O valor informado (${dataType.atomico.valor}) não é um compatível para o Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}).`;
+                return retornoEscrita;
+            }
+
+            const valorParaEscrever = dataType.atomico.valor;
+
+            // Verificar se o numero informado caberia no Data Type informado
+            if (detalhesDataType.isSigned) {
+
+                // Validar se o novo valor informado não vai ultrapassar o limite negativo do Data Type
+                let valorMinimo = -(2 ** ((detalhesDataType.tamanho * 8) - 1));
+                let valorMaximo = (2 ** ((detalhesDataType.tamanho * 8) - 1)) - 1;
+
+                if (valorParaEscrever < valorMinimo) {
+                    retornoEscrita.erro.descricao = `O valor informado (${valorParaEscrever}) ultrapassa o limite minimo do Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}). Valor minimo: ${valorMinimo}`;
+                    retornoEscrita.erro.isTipoValorInvalido = true;
+                    return retornoEscrita;
+                } else if (valorParaEscrever > valorMaximo) {
+                    retornoEscrita.erro.isTipoValorInvalido = true;
+                    retornoEscrita.erro.descricao = `O valor informado (${valorParaEscrever}) ultrapassa o limite maximo do Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}). Valor maximo: ${valorMaximo}`;
+                    return retornoEscrita;
+                }
+
+            } else {
+
+                // Tratativa para numeros unsigneds
+                if (valorParaEscrever < 0) {
+                    retornoEscrita.erro.descricao = `O valor informado (${valorParaEscrever}) é negativo, porém o Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}) não aceita valores negativos.`;
+                    retornoEscrita.erro.isTipoValorInvalido = true;
+                    return retornoEscrita
+                }
+
+                // Validar se o novo valor informado não vai ultrapassar o limite positivo do Data Type
+                let valorMaximo = (2 ** (detalhesDataType.tamanho * 8)) - 1;
+
+                if (valorParaEscrever > valorMaximo) {
+                    retornoEscrita.erro.descricao = `O valor informado (${valorParaEscrever}) ultrapassa o limite maximo do Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}). Valor maximo: ${valorMaximo}`;
+                    retornoEscrita.erro.isTipoValorInvalido = true;
+                    return retornoEscrita;
+                }
+            }
+
+            // Após as verificações de tamanho, eu sei que o novo valor deverá caber na tag.
+
+            // Para tipos numericos, o Buffer é composto de:
+            // 2 Bytes do Data Type atomico
+            // 2 Bytes do Tamanho do Data Type. Para numeros atomicos, é sempre 1.
+            const bufferDataType = Buffer.alloc(4);
+
+            bufferDataType.writeUInt16LE(detalhesDataType.codigo, 0);
+            bufferDataType.writeUInt16LE(1, 2);
+
+            // O resto do buffer é o tamanho do Data Type em bytes
+            const bufferValor = Buffer.alloc(detalhesDataType.tamanho);
+            bufferValor.writeUIntLE(valorParaEscrever, 0, detalhesDataType.tamanho);
+
+            // Juntar os dois e retornar ele
+            bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferValor]);
+
+            retornoEscrita.sucesso.tag.isAtomico = true;
+            retornoEscrita.sucesso.tag.atomico.valor = valorParaEscrever;
+            retornoEscrita.sucesso.tag.atomico.dataType = detalhesDataType;
+        } else if (dataType.isStruct) {
+            // Tratamento para Data Types do tipo Struct(672)
+
+            // Analisar o tipo da Struct informada
+            switch (dataType.struct.codigoStruct) {
+
+                // Se o Struct informado é uma String ASCII 82
+                case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                    /**
+                     * @type {EscreveTagStructASCIIString82}
+                     */
+                    const classeStructASCIIString82 = dataType.struct.classeStruct;
+                    if (classeStructASCIIString82.string == undefined) {
+
+                        retornoEscrita.erro.isTipoValorInvalido = true;
+                        retornoEscrita.erro.descricao = 'String a ser escrita não informada';
+                        return retornoEscrita;
+                    }
+
+                    // Da um toString só pra garantir
+                    let stringPraEscrever = classeStructASCIIString82.string.toString();
+
+                    // Como o tamanho maximo permitido é 82, eu corto por garantia se for maior
+                    if (stringPraEscrever.length > 82) {
+                        stringPraEscrever = stringPraEscrever.substring(0, 82);
+                    }
+
+                    // Ok agora com as informações da Struct da string, vou montar o Buffer completo
+                    // O Buffer pra escrever uma Struct String é composto de:
+                    // 2 Bytes do Data Type Struct que é 672
+                    // 2 Bytes do Tipo da Struct, que no caso é ASCII String 82
+                    // 2 Bytes pro tamanho do Tipo da Struct, que no caso também é 1 apenas
+                    // x Bytes restantes são para a string em si
+                    let bufferDataType = Buffer.alloc(6);
+
+                    // Escrever o Data Type Struct
+                    bufferDataType.writeUInt16LE(672, 0);
+
+                    // Escrever o Tipo da Struct
+                    bufferDataType.writeUInt16LE(this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct, 2);
+
+                    // Escrever o tamanho do Tipo da Struct(que é sempre 1 pra esse caso de Struct)
+                    bufferDataType.writeUInt16LE(1, 4);
+                    // -------
+
+                    // Agora o resto do buffer de 88 bytes de
+                    // 4 Bytes contendo o tamanho da string
+                    // 84 Bytes contendo a string em si
+                    let bufferString = Buffer.alloc(88);
+                    bufferString.writeUInt32LE(stringPraEscrever.length, 0);
+
+                    bufferString.write(stringPraEscrever, 4, stringPraEscrever.length);
+
+                    // Juntar os dois buffers
+                    bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferString]);
+
+                    /**
+                     * @type {EscritaTagStructASCIIString82}
+                     */
+                    const retornoEscritaStructASCIIString82 = {
+                        valor: stringPraEscrever
+                    }
+
+                    retornoEscrita.sucesso.tag.isStruct = true;
+                    retornoEscrita.sucesso.tag.struct.dataTypeStruct = this.#dataTypes.structs.ASCIISTRING82;
+                    retornoEscrita.sucesso.tag.struct.valor = retornoEscritaStructASCIIString82
+                    break;
+                }
+                default: {
+                    retornoEscrita.erro.descricao = `Tipo de Struct informado não existe ou não é suportado ainda: ${dataType.struct.codigoStruct}`;
+                    retornoEscrita.erro.isTipoDataTypeInexistente = true;
+
+                    return;
+                }
+            }
+        }
+
+        // Configurar o Service Packet com os dados do Buffer com as alterações
+        layerServicePacket.setAsSetAttribute({
+            nome: `${tag}`,
+            CIPGenericBuffer: bufferDataTypeEscrita
+        })
+
+        retornoEscrita.sucesso.msDetalhes.dateTimeInicio = new Date().getTime();
+
+        // Ok, agora enviar a solicitação ENIP
+        const statusEnviaENIP = await this.getENIPSocket().enviarENIP(layerENIP);
+
+        retornoEscrita.sucesso.msDetalhes.dateTimeFim = new Date().getTime();
+        retornoEscrita.sucesso.msDetalhes.totalMsEscrita = retornoEscrita.sucesso.msDetalhes.dateTimeFim - retornoEscrita.sucesso.msDetalhes.dateTimeInicio;
+
+        // Verificar se o pacote ENIP foi enviado com sucesso
+        if (!statusEnviaENIP.isSucesso) {
+
+            // Ocorreu algum erro na transmissão do ENIP, verificar
+            if (!statusEnviaENIP.enipEnviar.isEnviou) {
+
+                if (statusEnviaENIP.enipEnviar.erro.isWriteSocket) {
+                    // O erro foi causado na hora de usar o Write pra escrever no Socket
+                    retornoEscrita.erro.enviarENIP.isWriteSocket = true;
+                } else if (statusEnviaENIP.enipEnviar.erro.isGerarBuffer) {
+                    // O erro foi causado na geração do Buffer do Builder do ENIP. Algum campo invalido provavelmente
+                    retornoEscrita.erro.enviarENIP.isGerarBuffer = true;
+                    retornoEscrita.erro.enviarENIP.gerarBuffer.traceLog = statusEnviaENIP.enipEnviar.erro.erroGerarBuffer.traceLog;
+                }
+
+                retornoEscrita.erro.descricao = `O envio do ENIP retornou: ${statusEnviaENIP.enipEnviar.erro.descricao} `;
+                retornoEscrita.erro.isEnviarENIP = true;
+
+                return retornoEscrita;
+            }
+
+            // Se deu erro ao receber o ENIP, verificar.
+            if (!statusEnviaENIP.enipReceber.isRecebeu) {
+
+                if (statusEnviaENIP.enipReceber.erro.isDemorouResposta) {
+                    // O erro foi causado por demorar a resposta do pacote ENIP
+                    retornoEscrita.erro.receberENIP.isDemorouResposta = true;
+                }
+
+                retornoEscrita.erro.descricao = `O recebimento do ENIP retornou: ${statusEnviaENIP.enipReceber.erro.descricao} `;
+                retornoEscrita.erro.isReceberENIP = true;
+
+                return retornoEscrita;
+            }
+        }
+
+        // Se chegou aqui, eu tenho o pacote ENIP de resposta do controlador. Agora preciso verificar se ele retornou sucesso ou não na operação de escrita
+        const ENIPResposta = statusEnviaENIP.enipReceber.enipParser;
+
+        // O comando que deve ser retornado é um SendRRData. Na teoria isso nunca deveria cair aqui pq a resposta do ENIP sempre deve corresponder a solicitação original, se enviou um SendRRData, deve receber um SendRRData
+        if (!ENIPResposta.isSendRRData()) {
+
+            retornoEscrita.erro.descricao = 'O pacote de resposta não é um SendRRData.';
+            retornoEscrita.erro.isErroLayers = true;
+            retornoEscrita.erro.erroLayers.isSendRRDataInvalido = true;
+            return retornoEscrita;
+        }
+
+        // Obter as informações do SendRRData
+        const ENIPSendRRData = ENIPResposta.getAsSendRRData();
+
+        // Se retornou um SendRRData, validar se o parser conseguiu extrair as informações corretamente
+        if (!ENIPSendRRData.isValido().isValido) {
+
+            retornoEscrita.erro.descricao = `O pacote SendRRData não é valido, alguma informação no Buffer está incorreta: ${ENIPSendRRData.isValido().erro.descricao} `;
+            retornoEscrita.erro.isErroLayers = true;
+            retornoEscrita.erro.erroLayers.isSendRRDataInvalido = true;
+            retornoEscrita.erro.erroLayers.sendRRDataInvalido.trace = ENIPSendRRData.isValido().tracer.getHistoricoOrdenado();
+            return retornoEscrita;
+        }
+
+        // Obrigatoriamente deve ser um serviço CIP que contém os dados encapsulados da informação de escrita da tag(já que a comunicação no momento com o Compact tá sendo via CIP)
+        if (!ENIPSendRRData.isServicoCIP()) {
+
+            retornoEscrita.erro.descricao = 'O pacote de resposta não contém um serviço CIP';
+            retornoEscrita.erro.isErroLayers = true;
+            retornoEscrita.erro.erroLayers.isCIPInvalido = true;
+            return retornoEscrita;
+        }
+
+        // Obter as informações do Serviço CIP que contém nessa altura do jogo, o CIP Connection Manager com as informações solicitadas
+        const ENIPCIP = ENIPSendRRData.getAsServicoCIP();
+        if (!ENIPCIP.isValido().isValido) {
+
+            retornoEscrita.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${ENIPCIP.isValido().erro.descricao} `;
+            retornoEscrita.erro.isErroLayers = true;
+            retornoEscrita.erro.erroLayers.isCIPInvalido = true;
+            retornoEscrita.erro.erroLayers.CIPInvalido.trace = ENIPCIP.isValido().tracer.getHistoricoOrdenado();
+            return retornoEscrita;
+        }
+
+        // Validar o código de status do CIP, pois tem alguns status que são erros fatais e não tem como prosseguir
+        if (ENIPCIP.getStatusCIP().codigo != CIPGeneralStatusCodes.Success.hex) {
+
+            // O erro grave deve ser marcado como true se foi retornado um código de status que invalidou toda a operação e impede de prosseguir com a leitura da tag
+            let isErroGrave = false;
+
+            switch (ENIPCIP.getStatusCIP().codigo) {
+
+                // O Connection Failure é um erro fatal que não tem como prosseguir
+                case CIPGeneralStatusCodes.ConnectionFailure.hex: {
+                    isErroGrave = true;
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou Connection Failure-- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    break;
+                }
+                // O dispositivo não conseguiu processar a solicitação por falta de recursos
+                case CIPGeneralStatusCodes.ResourceUnavailable.hex: {
+                    isErroGrave = true;
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou Resource Unavailable-- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    break;
+                }
+                // O Path Segment error é fatal, o caminho pro Request Path é invalido, então a informação pode ser prosseguida pelo SingleServicePacket adiante
+                case CIPGeneralStatusCodes.PathSegmentError.hex: {
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou Path Segment Error-- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    break;
+                }
+                // O Partial Transfer não entendi ainda em que situações ocorre, por isso evito de prosseguir
+                case CIPGeneralStatusCodes.PartialTransfer.hex: {
+                    isErroGrave = true;
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou Partial Transfer(Ainda não é suportado)-- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    break;
+                }
+                // O Connection Lost é um erro fatal que não tem como prosseguir
+                case CIPGeneralStatusCodes.ConnectionLost.hex: {
+                    isErroGrave = true;
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou Connection Lost-- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    break;
+                }
+                // Reply Data Too Large é um erro fatal também pq não terei os dados pra prosseguir com o processamento
+                case CIPGeneralStatusCodes.ReplyDataTooLarge.hex: {
+                    isErroGrave = true;
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou Reply Data Too Large-- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    break;
+                }
+                default: {
+
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou com o status desconhecido ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    isErroGrave = true;
+                    break;
+
+                }
+            }
+
+            // Se erro grave tiver setado, retornar como erro de status invalido
+            if (isErroGrave) {
+                retornoEscrita.erro.isStatusInvalido = true;
+                retornoEscrita.erro.statusInvalido.codigoDeErro = ENIPCIP.getStatusCIP().codigo;
+                retornoEscrita.erro.statusInvalido.descricaoStatus = ENIPCIP.getStatusCIP().descricao;
+                return retornoEscrita;
+            }
+
+        }
+
+        // Por último, o pacote CIP deve encapsular o Single Service Packet que foi a informação da tag escrita
+
+        if (!ENIPCIP.isSingleServicePacket()) {
+            retornoEscrita.erro.descricao = 'O pacote de resposta não contém um Single Service Packet';
+
+            retornoEscrita.erro.isErroLayers = true;
+            retornoEscrita.erro.erroLayers.isSingleServicePacket = true;
+            return retornoEscrita;
+        }
+
+        const ENIPSingleService = ENIPCIP.getAsSingleServicePacket();
+
+        // Validar se é deu pra dar parse no Buffer sem erros.
+        if (!ENIPSingleService.isValido().isValido) {
+
+            retornoEscrita.erro.descricao = `O pacote Single Service Packet não é valido, alguma informação no Buffer está incorreta: ${ENIPSingleService.isValido().erro.descricao} `;
+            retornoEscrita.erro.isErroLayers = true;
+            retornoEscrita.erro.erroLayers.isSingleServicePacket = true;
+            retornoEscrita.erro.erroLayers.singleServicePacket.trace = ENIPSingleService.isValido().tracer.getHistoricoOrdenado();
+            return retornoEscrita;
+        }
+
+        // Analisar se o SingleServicePacket retornou sucesso ou não
+        if (!ENIPSingleService.isStatusSucesso().isSucesso) {
+
+            retornoEscrita.erro.descricao = `O pacote Single Service Packet retornou um status de erro: ${ENIPSingleService.getStatus().codigoStatus} - ${ENIPSingleService.getStatus().descricaoStatus} `;
+            retornoEscrita.erro.isStatusInvalido = true;
+            retornoEscrita.erro.statusInvalido.codigoDeErro = ENIPSingleService.getStatus().codigoStatus;
+            retornoEscrita.erro.statusInvalido.descricaoStatus = ENIPSingleService.getStatus().descricaoStatus;
+            return retornoEscrita;
+        }
+
+        // Se chegou aqui, a operação de escrita foi bem sucedida
+        retornoEscrita.isSucesso = true;
+        return retornoEscrita;
+    }
+
+    /**
+     * Retorna informações de um Data Type atomico
      * @param {Number} codigo 
      * @returns {DataTypeTagAtomico}
      */
     getDataTypeAtomico(codigo) {
-        return Object.values(this.#dataTypes.numeros).find((type) => type.codigo == codigo);
+        return Object.values(this.#dataTypes.atomicos).find((type) => type.codigo == codigo);
     }
 
     /**
@@ -1137,6 +1923,51 @@ export class CompactLogixRockwell {
      */
     isDataTypeAtomico(tipo) {
         return Object.values(this.#dataTypes.atomicos).some((type) => type.codigo == tipo);
+    }
+
+    /**
+     * Retorna informações de um Data Type do tipo Struct 672
+     * @param {Number} codigoStruct - Código especifico do Struct
+     */
+    getDataTypeStruct(codigoStruct) {
+        return Object.values(this.#dataTypes.structs).find((type) => type.codigoTipoStruct == codigoStruct);
+    }
+
+    /**
+     * Retorna se um Data Type especifico do Struct pertence ao tipo Struct
+     * @param {Number} codigoStruct
+     */
+    isDataTypeStruct(codStruct) {
+        return Object.values(this.#dataTypes.structs).some((type) => type.codigoTipoStruct == codStruct);
+    }
+
+    /**
+     * Retorna se um código de Data Type é do tipo Struct(672)
+     * @param {Number} codigo 
+     */
+    isStruct(codigo) {
+        return codigo == 672;
+    }
+
+    /**
+     * Retorna o tipo de dado de um Data Type
+     * @param {Number} codigo - Código para verificar, podendo ser um Data Type Atomico ou um Data Type Struct 
+     */
+    getTipoDataType(codigo) {
+        const dataTipo = {
+            isAtomico: false,
+            isStruct: false
+        }
+
+        if (codigo >= 192 && codigo <= 202) {
+            if (this.isDataTypeAtomico(codigo)) {
+                dataTipo.isAtomico = true;
+            }
+        } else if (codigo == 672) {
+            dataTipo.isStruct = true;
+        }
+
+        return dataTipo;
     }
 
     /**
@@ -1155,13 +1986,13 @@ export class CompactLogixRockwell {
              */
             conversao: {
                 /**
-                 * Se o valor é numerico(Data Types do range 193 até 197)
+                 * Se o valor é atomico(Data Types do range 193 até 197, que são os numeros, int, double, real, etc..)
                  */
-                isNumerico: false,
+                isAtomico: false,
                 /**
-                 * Se numerico, contém os dados do valor numerico 
+                 * Se é um valor atomico, contém os dados do valor 
                  */
-                numerico: {
+                atomico: {
                     /**
                      * Valor
                      * @type {Number}
@@ -1170,6 +2001,25 @@ export class CompactLogixRockwell {
                     /**
                      * Detalhes do tipo do valor, se é inteiro, double int, etc...
                      * @type {DataTypeTagAtomico}
+                     */
+                    dataType: undefined
+                },
+                /**
+                 * Se o valor é um Struct(Data Type 672, que é para Strings, Timers, etc.. tudo que é mais complexo que um simples numero)
+                 */
+                isStruct: false,
+                /**
+                 * Detalhes da Struct com seus dados.
+                 */
+                struct: {
+                    /**
+                     * Esse campo é dinamico dependendo do tipo da Struct, utilize o dataType para verificar o tipo se vc não sabe qual o tipo foi recebido
+                     * @type {DataTypeTagStructASCIIString82}
+                     */
+                    structData: undefined,
+                    /**
+                     * Detalhes do tipo da Struct
+                     * @type {DataTypeTagStruct}
                      */
                     dataType: undefined
                 }
@@ -1191,14 +2041,13 @@ export class CompactLogixRockwell {
         // Os primeiro 2 byte é o Tipo de Dado
         const IdDataType = buffer.readUInt16LE(0);
 
-        // Os tipos numericos começam do 193 a 202
-        let isDataAtomico = this.isDataTypeAtomico(IdDataType);
-        if (isDataAtomico) {
+        let dataTypeDetalhe = this.getTipoDataType(IdDataType);
+        if (dataTypeDetalhe.isAtomico) {
 
             // No caso de tipos numericos, os restantes dos bytes após os 2 bytes do tipo são os bytes do numero
             const detalhesDataType = this.getDataTypeAtomico(IdDataType);
             if (detalhesDataType == undefined) {
-                retornoConverte.erro.descricao = `Tipo de Data Type numerico não encontrado: ${IdDataType}`;
+                retornoConverte.erro.descricao = `Tipo de Data Type numerico não encontrado: ${IdDataType} `;
                 return retornoConverte;
             }
 
@@ -1207,15 +2056,63 @@ export class CompactLogixRockwell {
 
             retornoConverte.isConvertido = true;
 
-            retornoConverte.conversao.isNumerico = true;
-            retornoConverte.conversao.numerico.valor = valorContidoNoDataType;
-            retornoConverte.conversao.numerico.dataType = detalhesDataType;
+            retornoConverte.conversao.isAtomico = true;
+            retornoConverte.conversao.atomico.valor = valorContidoNoDataType;
+            retornoConverte.conversao.atomico.dataType = detalhesDataType;
 
+            return retornoConverte;
+        } else if (dataTypeDetalhe.isStruct) {
+
+            // No caso de Structs, os próximos 2 bytes indicam o tipo especifico da Struct
+            const tipoDaStruct = buffer.readUInt16LE(2);
+
+            // Pegar as informações da Struct
+            const detalhesStruct = this.getDataTypeStruct(tipoDaStruct);
+            if (detalhesStruct == undefined) {
+                retornoConverte.erro.descricao = `Tipo de Data Type Struct não encontrado: ${tipoDaStruct} `;
+                return retornoConverte;
+            }
+
+            // Aplicar uma trativa diferente para cada tipo de Struct já que cada uma tem um formato diferente
+            switch (detalhesStruct.codigoTipoStruct) {
+
+                // Tipo de Struct para String ASCII de 82 bytes
+                case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+
+                    // Próximos 1 byte é o tamanho real total de caracteres na string
+                    const tamanhoRealString = buffer.readUInt8(4);
+
+                    // Os próximos 3 bytes depois do tamanho são 3 bytes vazios, não sei oq mas as informações da string vem depois disso
+                    const conteudoString = buffer.subarray(8, 8 + tamanhoRealString).toString('utf8');
+
+                    /**
+                     * @type {DataTypeTagStructASCIIString82}
+                     */
+                    let typeValor = {
+                        stringConteudo: conteudoString,
+                        tamanho: tamanhoRealString
+                    }
+
+                    retornoConverte.isConvertido = true;
+                    retornoConverte.conversao.isStruct = true;
+                    retornoConverte.conversao.struct.dataType = detalhesStruct;
+                    retornoConverte.conversao.struct.structData = typeValor;
+                    return retornoConverte;
+                }
+
+                // Para tipos ainda não suportados ou desconhecidos
+                default: {
+
+                    retornoConverte.erro.descricao = `Tipo de Data Type Struct não suportado ou desconhecido: ${tipoDaStruct} `;
+                    return retornoConverte;
+                }
+            }
+        } else {
+
+            // Se não achou o tipo, deve ser um tipo não suportado ou inválido
+            retornoConverte.erro.descricao = `Tipo de Data Type não suportado ou desconhecido: ${IdDataType} `;
             return retornoConverte;
         }
 
-        // Se não achou o tipo nos ifs acima, deve ser um tipo não suportado ou inválido
-        retornoConverte.erro.descricao = `Tipo de Data Type não suportado ou desconhecido: ${IdDataType}`;
-        return retornoConverte;
     }
 }

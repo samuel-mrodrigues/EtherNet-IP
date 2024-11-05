@@ -69,8 +69,8 @@ export class SingleServicePacketParser {
 
         tracerBuffer.add(`Iniciando parser do SingleServicePacket com o Buffer: ${hexDeBuffer(buff)}, ${buff.length} bytes`);
 
-        // Precisa ser pelo menos 2 bytes que é o codigo de status + additional status size
-        if (buff.length < 2) {
+        // Precisa ser pelo menos 2 bytes que é o codigo de status
+        if (buff.length < 1) {
             this.#statusServico.erro.descricao = `O Buffer recebido tem apenas ${buff.length} bytes, precisa ter no minimo 2 bytes para ser um Single Service Packet válido.`;
             this.#statusServico.isValido = false;
 
@@ -107,7 +107,7 @@ export class SingleServicePacketParser {
 
         tracerBuffer.add(`O Buffer do Command Specific Data do Single Service Packet é: ${hexDeBuffer(this.#campos.commandSpecificData)}, ${this.#campos.commandSpecificData.length} bytes`);
 
-        tracerBuffer.add(`Parser do SingleServicePacket finalizado.`);	
+        tracerBuffer.add(`Parser do SingleServicePacket finalizado.`);
         retBuff.isSucesso = true;
         return retBuff;
     }

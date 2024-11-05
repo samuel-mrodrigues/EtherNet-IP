@@ -5,7 +5,15 @@ const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 4481
 await testeCompact.getENIPSocket().conectar();
 await testeCompact.getENIPSocket().autenticarENIP();
 
-// let leituraTag = await testeCompact.lerTag('BD_G2_NOME_OPERADOR');
+let escreveTag = await testeCompact.escreveTag('TESTE32', {
+    isAtomico: true,
+    atomico: {
+        codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo,
+        valor: 22
+    }
+})
+console.log(escreveTag);
 
-let leituraTag = await testeCompact.lerTag('TEMPO2_MANUTENCAO_DISA3');
-console.log(leituraTag);
+
+// let leituraTag = await testeCompact.lerTag('CACETE');
+// console.log(leituraTag);
