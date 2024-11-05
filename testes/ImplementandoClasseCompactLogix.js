@@ -631,20 +631,57 @@ export class EtherNetIPSocket {
      */
     #onConexaoDadosRecebidos(buffer) {
 
+        // Se receber um buffer nada avé
+        if (buffer.length < 4) {
+            this.log(`Recebido um pacote EtherNet/IP inválido: Tamanho do pacote menor que 4 bytes, descartando...`);
+            return;
+        }
+
+        // As vezes pode ocorrer de eu receber mais de um pacote ENIP no mesmo buffer quando o dispositivo remoto recebe muitas solicitações em pouco tempo, então ele manda junto pra economizar recursos.
+        // Vou validar o próximos 2 bytes a partir do offset 2 do Buffer que se for um EtherNet IP válido, vai conter o tamanho em bytes de todo o pacote ENIP, e ai eu corto do offset 0 até o seu tamanho final
+        let possivelBytesPayloadDoENIP = buffer.readUInt16LE(2);
+
+        // O tamanho total do Buffer passado no evento deve corresponder ao tamanho do payload ENIP + o cabeçalho do EtherNet/IP, que é composto por:
+        // 2 bytes do comando
+        // 2 bytes do tamanho do payload do pacote ENIP
+        // 4 bytes do session handler id
+        // 4 bytes do status da solicitação ENIP
+        // 8 bytes do sender context
+        // 4 bytes do options
+        // + o tamanho do payload do pacote ENIP
+        const tamanhoPacoteTotal = possivelBytesPayloadDoENIP + 24;
+
+        // Se o tamanho do buffer não corresponder ao tamanho total do pacote ENIP, eu vou cortar a parte que corresponderia provalemente ao pacote ENIP, e chamar novamente o evento de nova mensagem recebida com o restante do buffer
+        if (buffer.length != tamanhoPacoteTotal) {
+
+            // Pegar o restante dos bytes que vai sobrar
+            const restanteDoBuffer = buffer.subarray(tamanhoPacoteTotal);
+
+            // Cortar o buffer do tamanho do pacote ENIP válido
+            const novoBufferCorreto = buffer.subarray(0, tamanhoPacoteTotal);
+
+            this.log(`Recebido provavelmente mais de um pacote EtherNet/IP no mesmo Buffer: Tamanho do pacote esperado era ${tamanhoPacoteTotal} bytes, porém o Buffer recebido tem ${buffer.length} bytes. Prosseguindo com os primeiros ${tamanhoPacoteTotal} bytes e invocando novamente o evento de nova mensagem recebida com os ${restanteDoBuffer.length} bytes restantes.`);
+            buffer = novoBufferCorreto;
+
+            this.#onConexaoDadosRecebidos(restanteDoBuffer);
+        }
+
         // Dar parse no Buffer recebido
         const etherNetIPParser = new EtherNetIPLayerParser(buffer);
 
         // Só aceito se for um Buffer de um pacote EtherNet/IP válido
-        if (!etherNetIPParser.isValido()) {
+        if (!etherNetIPParser.isValido().isValido) {
             this.log(`Recebido um pacote EtherNet/IP inválido: ${etherNetIPParser.isValido().erro.descricao}. Stack de erro: ${etherNetIPParser.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`);
             return;
         }
 
+
         // Extrair o Sender Context do pacote recebido
         const senderContextBuffer = etherNetIPParser.getSenderContext();
+        console.log(senderContextBuffer);
 
         // Ler os 5 bytes que contém o ID unico da requisição original
-        const enipIDUnico = senderContextBuffer.readUIntLE(0, 5);
+        let enipIDUnico = senderContextBuffer.readUIntLE(0, 5);
 
         // O ID do ENIP é composto por 8 digitos do timestamp + 4 digitos aleatório
         const enipIDUnicoStr = enipIDUnico.toString().padStart(12, '0');
@@ -698,18 +735,23 @@ export class CompactLogixRockwell {
     }
 
     /**
-     * @typedef DataTypeTag
+     * @typedef DataTypeTagAtomico
      * @property {Number} codigo - Codigo do DataType no controlador
      * @property {String} descricao - Descrição do DataType
      * @property {Number} tamanho - Tamanho do tipo do DataType em bytes 
      */
 
+    /**
+     * @typedef DataTypeTag
+     * @property 
+     */
+
     #dataTypes = {
         /**
-         * Tipos de DataTypes numericos suportados
+         * Tipos de DataTypes atomicos(numeros) suportados
          * Contém o código do tipo de dado, a descrição e o tamanho em bytes
          */
-        numeros: {
+        atomicos: {
             BOOL: {
                 codigo: 193,
                 descricao: 'Boolean',
@@ -802,8 +844,23 @@ export class CompactLogixRockwell {
              * Se sucesso, contém os dados da tag lida
              */
             sucesso: {
-                /** */
-                valor: ''
+                /**
+                 * Se o valor lido é numerico(DataType de 193 a 202)
+                 */
+                isNumerico: false,
+                /**
+                 * Se isNumerico, contém os detalhes do valor lido
+                 */
+                numerico: {
+                    /**
+                     * O valor númerico
+                     */
+                    valor: undefined,
+                    /**
+                     * O DataType do valor lido
+                     */
+                    dataType: undefined
+                }
             },
             /**
              * Detalhes especificos do tipo do erro que foi ocorrido se isSucesso não for true
@@ -915,7 +972,11 @@ export class CompactLogixRockwell {
                      * Código do erro recebido conforme CIP Response Codes
                      */
                     codigoDeErro: undefined
-                }
+                },
+                /**
+                 * Se o erro foi causado devido a um erro de conversão do Buffer recebido no ENIP para o valor real(numero, string, array, etc..)
+                 */
+                isConverterValor: false
             }
         }
 
@@ -1039,22 +1100,122 @@ export class CompactLogixRockwell {
             return retornoTag;
         }
 
-        // Se chegou aqui, a leitura foi bem sucedida e o valor da tag está no buffer de dados do Single Service Packet
-        
+        // Converter o Buffer que contém as informações da tag lida
+        let converteBufferPraValor = this.#converteDataTypeToValor(ENIPSingleService.getAsCIPClassCommandSpecificData());
 
+        // Se não foi possível converter o valor
+        if (!converteBufferPraValor.isConvertido) {
+
+            retornoTag.erro.isConverterValor = true;
+            retornoTag.erro.descricao = `Não foi possível converter o valor do Buffer: ${converteBufferPraValor.erro.descricao}`;
+            return retornoTag;
+        }
+
+        // Finalmente, se tudo deu certo, estou com o valor em mãos
+        if (converteBufferPraValor.conversao.isNumerico) {
+            retornoTag.sucesso.isNumerico = true;
+
+            retornoTag.sucesso.numerico.valor = converteBufferPraValor.conversao.numerico.valor;
+            retornoTag.sucesso.numerico.dataType = converteBufferPraValor.conversao.numerico.dataType;
+        }
+
+        retornoTag.isSucesso = true;
         return retornoTag;
     }
 
     /**
      * Retorna informações de um Data Type
      * @param {Number} codigo 
-     * @returns {DataTypeTag}
+     * @returns {DataTypeTagAtomico}
      */
-    getDataType(codigo) {
-        for (const dataTypesTipo in this.#dataTypes) {
+    getDataTypeAtomico(codigo) {
+        return Object.values(this.#dataTypes.numeros).find((type) => type.codigo == codigo);
+    }
 
-            let existeDataType = Object.values(this.#dataTypes[dataTypesTipo]).find((type) => type.codigo == codigo);
-            if (existeDataType != undefined) return dataTypesTipo;
+    /**
+     * Retorna se um Data Type ta no range pra ser um tipo atomico(numero)
+     */
+    isDataTypeAtomico(tipo) {
+        return Object.values(this.#dataTypes.atomicos).some((type) => type.codigo == tipo);
+    }
+
+    /**
+     * Converte um buffer de CIP Class Generic que contém o valor de uma tag para o valor do tipo de dado
+     ** Um Buffer de Data Type é geralmente dinamico dependendo do tipo, porém por padrão os 2 bytes inicias sempre são o tipo correspondente do Data Type do valor.
+     * @param {Buffer} buffer - Buffer para converter
+     */
+    #converteDataTypeToValor(buffer) {
+        let retornoConverte = {
+            /**
+             * Se foi possível converter o valor com sucesso
+             */
+            isConvertido: false,
+            /**
+             * Se sucesso, contém detalhes do valor convertido
+             */
+            conversao: {
+                /**
+                 * Se o valor é numerico(Data Types do range 193 até 197)
+                 */
+                isNumerico: false,
+                /**
+                 * Se numerico, contém os dados do valor numerico 
+                 */
+                numerico: {
+                    /**
+                     * Valor
+                     * @type {Number}
+                     */
+                    valor: undefined,
+                    /**
+                     * Detalhes do tipo do valor, se é inteiro, double int, etc...
+                     * @type {DataTypeTagAtomico}
+                     */
+                    dataType: undefined
+                }
+            },
+            /**
+             * Se não deu pra converter o valor, contém detalhes do erro
+             */
+            erro: {
+                descricao: ''
+            }
         }
+
+        // Se o buffer não tiver pelo menos 4 bytes, não tem como ser um buffer de Data Type
+        if (buffer.length < 4) {
+            retornoConverte.erro.descricao = 'O buffer não contém pelo menos 4 bytes para ser um buffer de Data Type';
+            return retornoConverte;
+        }
+
+        // Os primeiro 2 byte é o Tipo de Dado
+        const IdDataType = buffer.readUInt16LE(0);
+
+        // Os tipos numericos começam do 193 a 202
+        let isDataAtomico = this.isDataTypeAtomico(IdDataType);
+        if (isDataAtomico) {
+
+            // No caso de tipos numericos, os restantes dos bytes após os 2 bytes do tipo são os bytes do numero
+            const detalhesDataType = this.getDataTypeAtomico(IdDataType);
+            if (detalhesDataType == undefined) {
+                retornoConverte.erro.descricao = `Tipo de Data Type numerico não encontrado: ${IdDataType}`;
+                return retornoConverte;
+            }
+
+            // Realizar a tratativa pro valor numerico, que é a leitura do buffer a partir do 4 byte, até x bytes do tamanho do numero.
+            let valorContidoNoDataType = buffer.readUIntLE(2, detalhesDataType.tamanho);
+
+            retornoConverte.isConvertido = true;
+
+            retornoConverte.conversao.isNumerico = true;
+            retornoConverte.conversao.numerico.valor = valorContidoNoDataType;
+            retornoConverte.conversao.numerico.dataType = detalhesDataType;
+
+            return retornoConverte;
+        }
+
+        // Se não achou o tipo nos ifs acima, deve ser um tipo não suportado ou inválido
+        retornoConverte.erro.descricao = `Tipo de Data Type não suportado ou desconhecido: ${IdDataType}`;
+        return retornoConverte;
     }
 }

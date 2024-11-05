@@ -111,6 +111,7 @@ export class CIPSendRRDataParser {
         this.#campos.bufferPacketdata = bufferServicoDados;
 
         retornoBuffer.isSucesso = true;
+        this.#statusCIP.isValido = true;
 
         tracerBuffer.add(`Parser de CIP finalizado!`);
         return retornoBuffer;

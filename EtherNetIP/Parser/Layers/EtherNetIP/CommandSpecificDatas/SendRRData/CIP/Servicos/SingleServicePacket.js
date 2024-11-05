@@ -157,7 +157,7 @@ export class SingleServicePacketParser {
         }
 
         const statusAtual = this.getStatus();
-        if (statusAtual.codigoStatus == CIPGeneralStatusCodes.Success) {
+        if (statusAtual.codigoStatus == CIPGeneralStatusCodes.Success.hex) {
             retSucesso.isSucesso = true;
         } else {
             retSucesso.erro.descricao = `O status do serviço solicitado não foi bem sucedido. Código de status: ${statusAtual.codigoStatus} - ${statusAtual.descricaoStatus}`;
