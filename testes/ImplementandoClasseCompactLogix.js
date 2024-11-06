@@ -33,6 +33,11 @@ export class EtherNetIPSocket {
      * @param {String} enipID.dateTime - 8 digitos do timestamp em millisegundos usado para compor o ID
      */
 
+    /**
+     * @callback CallbackLog
+     * @param {String} mensagem - Mensagem de log disparada
+     */
+
     #configuracao = {
         ip: '',
         porta: 0,
@@ -238,6 +243,7 @@ export class EtherNetIPSocket {
             envioStatus.enipEnviar.erro.isGerarBuffer = true;
             envioStatus.enipEnviar.erro.erroGerarBuffer.traceLog = bufferENIP.tracer.getHistoricoOrdenado();
 
+            this.log(`Erro ao criar Buffer do pacote EtherNet/IP: ${bufferENIP.erro.descricao}. Tracelog: ${bufferENIP.tracer.getHistoricoOrdenado().join(' -> ')}`);
             return envioStatus;
         }
 
@@ -594,6 +600,14 @@ export class EtherNetIPSocket {
     }
 
     /**
+     * Adicionar um callback para quando ocorrer um disparo de log
+     * @param {CallbackLog} cb
+     */
+    onLog(cb) {
+        return this.#estado.emissorEvento.addEvento('log', cb);
+    }
+
+    /**
      * Quando acontecer um erro de conexão
      * @param {Error} erro 
      */
@@ -707,6 +721,7 @@ export class EtherNetIPSocket {
     }
 
     log(msg) {
+        this.#estado.emissorEvento.disparaEvento('log', msg);
         if (!this.#configuracao.logs.habilitarLogsConsole) return;
 
         let ctdMsg = '';
@@ -855,6 +870,13 @@ export class CompactLogixRockwell {
         }
     }
 
+    #estado = {
+        /**
+         * Emissor de eventos do CompactLogix
+         */
+        emissorEvento: new EmissorEvento(),
+    }
+
     /**
      * Parametros de conexão com o controlador CompactLogix
      * @param {Object} parametros
@@ -879,10 +901,16 @@ export class CompactLogixRockwell {
     }
 
     /**
-     * Retorna os Data Types disponiveis do controlador CompactLogix
+     * @callback CallbackLog
+     * @param {String} mensagem - Mensagem disparada no log
      */
-    getDataTypes() {
-        return this.#dataTypes;
+
+    /**
+     * Adicionar um callback para quando um log for disparado
+     * @param {CallbackLog} cb 
+     */
+    onLog(cb) {
+        this.#estado.emissorEvento.addEvento('log', cb);
     }
 
     /**
@@ -908,25 +936,28 @@ export class CompactLogixRockwell {
             isSucesso: false,
             tagSolicitada: tag,
             /**
+             * Detalhes dos tempos de leitura da tag
+             */
+            msDetalhes: {
+                /**
+                 * Data atual em millisegundos de quando a leitura foi iniciada e o pacote ENIP foi enviada
+                 * @type {Number}
+                 */
+                dateTimeInicio: new Date().getTime(),
+                /**
+                 * Data atual em millisegundos de quando o pacote ENIP foi recebido e parseado
+                 * @type {Number}
+                 */
+                dateTimeFim: undefined,
+                /**
+                 * Tempo em ms total de leitura da tag
+                 */
+                totalMsLeitura: undefined
+            },
+            /**
              * Se sucesso, contém os dados da tag lida
              */
             sucesso: {
-                msDetalhes: {
-                    /**
-                     * Data atual em millisegundos de quando a leitura foi iniciada e o pacote ENIP foi enviada
-                     * @type {Number}
-                     */
-                    dateTimeInicio: new Date().getTime(),
-                    /**
-                     * Data atual em millisegundos de quando o pacote ENIP foi recebido e parseado
-                     * @type {Number}
-                     */
-                    dateTimeFim: undefined,
-                    /**
-                     * Tempo em ms total de leitura da tag
-                     */
-                    totalMsLeitura: undefined
-                },
                 tag: {
                     /**
                      * Se o valor lido é atomico(numeros DataType de 193 a 202)
@@ -1096,12 +1127,14 @@ export class CompactLogixRockwell {
             CIPGenericBuffer: Buffer.from([0x01, 0x00])
         })
 
+        this.log(`Lendo tag ${tag}...`);
+
         // Enviar o pacote ENIP
         let statusEnviaENIP = await this.getENIPSocket().enviarENIP(layerENIP);
 
-        retornoTag.sucesso.msDetalhes.dateTimeFim = new Date().getTime();
+        retornoTag.msDetalhes.dateTimeFim = new Date().getTime();
 
-        retornoTag.sucesso.msDetalhes.totalMsLeitura = retornoTag.sucesso.msDetalhes.dateTimeFim - retornoTag.sucesso.msDetalhes.dateTimeInicio;
+        retornoTag.msDetalhes.totalMsLeitura = retornoTag.msDetalhes.dateTimeFim - retornoTag.msDetalhes.dateTimeInicio;
 
         // Analisar se o envio e o recebimento dos pacotes ENIPs obtiveram sucesso
         if (!statusEnviaENIP.isSucesso) {
@@ -1122,6 +1155,7 @@ export class CompactLogixRockwell {
                 retornoTag.erro.descricao = `O envio do ENIP retornou: ${statusEnviaENIP.enipEnviar.erro.descricao}`;
                 retornoTag.erro.isEnviarENIP = true;
 
+                this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
                 return retornoTag;
             }
 
@@ -1135,6 +1169,7 @@ export class CompactLogixRockwell {
                 retornoTag.erro.descricao = `O recebimento do ENIP retornou: ${statusEnviaENIP.enipReceber.erro.descricao}`;
                 retornoTag.erro.isReceberENIP = true;
 
+                this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
                 return retornoTag;
             }
         }
@@ -1147,6 +1182,8 @@ export class CompactLogixRockwell {
             retornoTag.erro.descricao = 'O pacote de resposta não é um SendRRData.';
             retornoTag.erro.isErroLayers = true;
             retornoTag.erro.erroLayers.isSendRRDataInvalido = true;
+
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
 
@@ -1161,6 +1198,8 @@ export class CompactLogixRockwell {
             retornoTag.erro.isErroLayers = true;
             retornoTag.erro.erroLayers.isSendRRDataInvalido = true;
             retornoTag.erro.erroLayers.sendRRDataInvalido.trace = ENIPSendRRData.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
 
@@ -1170,6 +1209,8 @@ export class CompactLogixRockwell {
 
             retornoTag.erro.isErroLayers = true;
             retornoTag.erro.erroLayers.isCIPInvalido = true;
+
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
 
@@ -1181,6 +1222,8 @@ export class CompactLogixRockwell {
             retornoTag.erro.isErroLayers = true;
             retornoTag.erro.erroLayers.isCIPInvalido = true;
             retornoTag.erro.erroLayers.CIPInvalido.trace = ENIPCIP.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
 
@@ -1206,7 +1249,7 @@ export class CompactLogixRockwell {
                 }
                 // O Path Segment error não é fatal, o caminho pro Request Path é invalido, então a informação pode ser prosseguida pelo SingleServicePacket adiante
                 case CIPGeneralStatusCodes.PathSegmentError.hex: {
-
+                    retornoTag.erro.descricao = `O pacote CIP retornou Path Segment Error -- ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao}`;
                     break;
                 }
                 // O Partial Transfer não entendi ainda em que situações ocorre, por isso evito de prosseguir
@@ -1247,6 +1290,8 @@ export class CompactLogixRockwell {
                 retornoTag.erro.isStatusInvalido = true;
                 retornoTag.erro.statusInvalido.codigoDeErro = ENIPCIP.getStatusCIP().codigo;
                 retornoTag.erro.statusInvalido.descricaoStatus = ENIPCIP.getStatusCIP().descricao;
+
+                this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
                 return retornoTag;
             }
         }
@@ -1258,6 +1303,8 @@ export class CompactLogixRockwell {
 
             retornoTag.erro.isErroLayers = true;
             retornoTag.erro.erroLayers.isSingleServicePacket = true;
+
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
         const ENIPSingleService = ENIPCIP.getAsSingleServicePacket();
@@ -1269,6 +1316,8 @@ export class CompactLogixRockwell {
             retornoTag.erro.isErroLayers = true;
             retornoTag.erro.erroLayers.isSingleServicePacket = true;
             retornoTag.erro.erroLayers.singleServicePacket.trace = ENIPSingleService.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
 
@@ -1280,6 +1329,8 @@ export class CompactLogixRockwell {
             retornoTag.erro.statusInvalido.codigoDeErro = detalhesStatus.erro.codigoStatus
             retornoTag.erro.statusInvalido.descricaoStatus = `${detalhesStatus.erro.descricaoStatus} - ${detalhesStatus.erro.descricao}`;
 
+            retornoTag.erro.descricao = `O pacote Single Service Packet retornou um status de erro: ${detalhesStatus.erro.descricao}`;
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${detalhesStatus.erro.descricao}`);
             return retornoTag;
         }
 
@@ -1291,6 +1342,8 @@ export class CompactLogixRockwell {
 
             retornoTag.erro.isConverterValor = true;
             retornoTag.erro.descricao = `Não foi possível converter o valor do Buffer: ${converteBufferPraValor.erro.descricao}`;
+
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
 
@@ -1300,24 +1353,299 @@ export class CompactLogixRockwell {
 
             retornoTag.sucesso.tag.atomico.valor = converteBufferPraValor.conversao.atomico.valor;
             retornoTag.sucesso.tag.atomico.dataType = converteBufferPraValor.conversao.atomico.dataType;
+
+            this.log(`Tag ${tag} (Tipo Atomico ${converteBufferPraValor.conversao.atomico.dataType.codigo} - ${converteBufferPraValor.conversao.atomico.dataType.descricao}) lida com sucesso com o número ${converteBufferPraValor.conversao.atomico.valor} em ${retornoTag.msDetalhes.totalMsLeitura}ms`);
         } else if (converteBufferPraValor.conversao.isStruct) {
 
             retornoTag.sucesso.tag.isStruct = true;
 
             retornoTag.sucesso.tag.struct.dataTypeStruct = converteBufferPraValor.conversao.struct.dataType;
-            retornoTag.sucesso.tag.struct.valor = {
-                stringConteudo: converteBufferPraValor.conversao.struct.structData.stringConteudo,
-                tamanho: converteBufferPraValor.conversao.struct.structData.tamanho
+
+            // Analisar o tipo da Struct e devolver corretamente no retorno
+            if (converteBufferPraValor.conversao.struct.structData.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
+
+                /**
+                 * @type {DataTypeTagStructASCIIString82}
+                 */
+                let structTipoString = {
+                    stringConteudo: converteBufferPraValor.conversao.struct.structData.stringConteudo,
+                    tamanho: converteBufferPraValor.conversao.struct.structData.tamanho
+                }
+                retornoTag.sucesso.tag.struct.valor = structTipoString
+
+                this.log(`Tag ${tag} (Tipo Struct ${converteBufferPraValor.conversao.struct.dataType.codigoTipoStruct} - ${converteBufferPraValor.conversao.struct.dataType.descricao}) lida com sucesso com a string ${structTipoString.stringConteudo} em ${retornoTag.msDetalhes.totalMsLeitura}ms`);
             }
         } else {
             retornoTag.erro.descricao = 'O valor lido não é nem atomico nem uma struct';
             retornoTag.erro.isConverterValor = true;
 
+            this.log(`Ocorreu um erro ao ler a tag ${tag}: ${retornoTag.erro.descricao}`);
             return retornoTag;
         }
 
         retornoTag.isSucesso = true;
         return retornoTag;
+    }
+
+    /**
+     * Solicita multiplas tags para serem lidas
+     * @param {Array<String>} tags - Array de tags a serem lidas
+     */
+    async lerMultiplasTags(tags) {
+        if (tags == undefined) throw new Error('Tags a serem lidas não informadas');
+        if (!Array.isArray(tags)) throw new Error('Tags a serem lidas devem ser um array');
+        if (tags.length == 0) throw new Error('Array de tags a serem lidas não pode ser vazio');
+
+        // Verificar se alguma tag do Array não é uma string
+        if (tags.some(tag => typeof tag != 'string')) throw new Error('Todas as tags a serem lidas devem ser strings');
+
+        const retornoLeituraMultipla = {
+            /**
+             * Se pelo menos a requisição de leitura chegou ao dispositivo remoto e retornou uma resposta(mesmo que seja uma resposta de erro)
+             */
+            isSucesso: false,
+            /**
+             * Se ocorreu algum erro durante a requisição
+             */
+            erro: {
+                descricao: ''
+            }
+        }
+
+        const layerENIP = this.getENIPSocket().getNovoLayerBuilder();
+
+        // O Connection Manager é o primeiro layer que deve ser enviado
+        const layerConnectionManager = layerENIP.buildSendRRData().criarServicoCIP().buildCIPConnectionManager();
+
+        // Adicionar o Multiple Service Packet que é o pacote que contém as informações de leitura de multiplas tags
+        const layerMultipleService = layerConnectionManager.getCIPMessage().buildMultipleServicePacket();
+        layerMultipleService.setAsMessageRouter();
+
+        // Um for em cada tag solicitada para adicionar ao Multiple Service
+        for (const tag of tags) {
+
+            // Adiciona um Single Service ao Multiple Service
+            let layerSingleService = layerMultipleService.addSingleServicePacket();
+
+            // Configurar para retornar as informações da tag desejada
+            layerSingleService.servico.setAsGetAttribute({
+                nome: tag,
+                CIPGenericBuffer: Buffer.from([0x01, 0x00])
+            })
+        }
+
+        // Ok, adicionar os layers, tentar enviar o ENIP
+
+        const statusEnviaENIP = await this.getENIPSocket().enviarENIP(layerENIP);
+
+        // Se ocorreu algum tipo de erro durante o envio ou rcebimento do ENIP
+        if (!statusEnviaENIP.isSucesso) {
+
+            // Se o erro foi devido ao envio do ENIP
+            if (!statusEnviaENIP.enipEnviar.isEnviou) {
+
+                retornoLeituraMultipla.erro.descricao = `Erro ao enviar o pacote ENIP: ${statusEnviaENIP.enipEnviar.erro.descricao}`;
+                return retornoLeituraMultipla;
+            }
+
+            // Se o erro foi devido ao não recebimento da resposta da solicitação ENIP
+            if (statusEnviaENIP.enipReceber.isRecebeu) {
+
+                retornoLeituraMultipla.erro.descricao = `Erro ao receber o pacote ENIP: ${statusEnviaENIP.enipReceber.erro.descricao}`;
+                return retornoLeituraMultipla;
+            }
+        }
+
+        // Se chegou aqui, o pacote ENIP foi enviado e recebido com sucesso. Agora é analisar o conteúdo da resposta nos próximos layers
+        const ENIPResposta = statusEnviaENIP.enipReceber.enipParser;
+
+        // O comando da resposta deve ser um SendRRData
+        if (!ENIPResposta.isSendRRData()) {
+            retornoLeituraMultipla.erro.descricao = 'O pacote de resposta não é um SendRRData';
+
+            return retornoLeituraMultipla;
+        }
+
+        // Obter as informações do SendRRData
+        const ENIPSendRRData = ENIPResposta.getAsSendRRData();
+
+        // Validar se o parser conseguiu extrair as informações corretamente
+        if (!ENIPSendRRData.isValido().isValido) {
+            retornoLeituraMultipla.erro.descricao = `O pacote SendRRData não é valido, alguma informação no Buffer está incorreta: ${ENIPSendRRData.isValido().erro.descricao}`;
+
+            return retornoLeituraMultipla;
+        }
+
+        // Obrigatoriamente deve ser um serviço CIP que contém os dados encapsulados da informação de leitura da tag(já que a comunicação no momento com o Compact tá sendo via CIP)
+        if (!ENIPSendRRData.isServicoCIP()) {
+            retornoLeituraMultipla.erro.descricao = 'O pacote de resposta não contém um serviço CIP';
+
+            return retornoLeituraMultipla;
+        }
+
+        // Obter as informações do Serviço CIP que contém nessa altura do jogo, o CIP Connection Manager com as informações solicitadas
+        const ENIPCIP = ENIPSendRRData.getAsServicoCIP();
+
+        if (!ENIPCIP.isValido().isValido) {
+            retornoLeituraMultipla.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${ENIPCIP.isValido().erro.descricao}`;
+
+            return retornoLeituraMultipla;
+        }
+
+        // Validar o código de status do CIP, pois tem alguns status que são erros fatais e não tem como prosseguir
+        if (ENIPCIP.getStatusCIP().codigo != CIPGeneralStatusCodes.Success.hex) {
+
+            /**
+             * Se o erro retornado é fatal e não da pra continuar a função de leitura das tags
+             */
+            let isErroFatal = false;
+
+            switch (ENIPCIP.getStatusCIP().codigo) {
+                // O unico erro que permite continuar a leitura das tags é o Path Segment Error, que é um erro de caminho da tag, e como nesse caso são Multiple Service, uma pode ter dado erro porém outras não
+                case CIPGeneralStatusCodes.PathSegmentError.hex: {
+                    break
+                }
+                // Pra qualquer outro tipo de erro, eu não permito continuar
+                default: {
+
+                    retornoLeituraMultipla.erro.descricao = `O pacote CIP retornou um status de erro: ${ENIPCIP.getStatusCIP().codigo} - ${ENIPCIP.getStatusCIP().descricao}`;
+                    isErroFatal = true;
+                    break;
+                }
+            }
+
+            if (isErroFatal) {
+                return retornoLeituraMultipla;
+            }
+        }
+
+        // Ok, validado o código de status do CIP, agora devo ter um Multiple Service Packet encapsulado com os dados de cada Single Service
+
+        if (!ENIPCIP.isMultipleServicePacket()) {
+            retornoLeituraMultipla.erro.descricao = 'O pacote de resposta não contém um Multiple Service Packet';
+
+            return retornoLeituraMultipla;
+        }
+
+        // Obter o Multiple Service Packet com as informações dos serviços solicitados
+        const ENIPMultipleService = ENIPCIP.getAsMultipleServicePacket();
+        if (!ENIPMultipleService.isValido().isValido) {
+            retornoLeituraMultipla.erro.descricao = `O pacote Multiple Service Packet não é valido, alguma informação no Buffer está incorreta: ${ENIPMultipleService.isValido().erro.descricao}`;
+
+            return retornoLeituraMultipla;
+        }
+
+        /**
+         * @typedef TagLidaMultipla
+         * @property {String} tag - Tag lida
+         * @property {Boolean} isSucesso - Se a leitura da tag foi bem sucedida
+         * @property {Object} sucesso - Se isSucesso for true, contém os detalhes da tag lida
+         * @property {Boolean} sucesso.isAtomico - Se o valor lido é atomico(numeros DataType de 193 a 202)
+         * @property {Object} sucesso.atomico - Se isAtomico for true, contém os detalhes do valor lido
+         * @property {Number} sucesso.atomico.valor - O valor númerico
+         * @property {DataTypeTagAtomico} sucesso.atomico.dataType - O DataType do valor lido
+         * @property {Boolean} sucesso.isStruct - Se o valor lido é do tipo de uma Struct
+         * @property {Object} sucesso.struct - Se isStruct for true, contém os detalhes da Struct
+         * @property {DataTypeTagStruct} sucesso.struct.dataTypeStruct - O Data Type da Struct lido
+         * @property {DataTypeTagStructASCIIString82} sucesso.struct.valor - O valor da Struct lido. Esse campo é dinamico depenendo do tipo da Struct
+         * @property {Object} erro - Se isSucesso for false, contém os detalhes do erro ocorrido
+         * @property {String} erro.descricao - Descrição do erro ocorrido
+         * @property {Boolean} erro.isCIPNaoRetornado - A resposta ENIP recebida não continha um CIP com os dados dessa tag solicitada
+         * @property {Boolean} erro.isCIPInvalido - O CIP Packet retornado não é valido
+         * @property {Object} erro.CIPInvalido - Se isCIPInvalido, contém o motivo de ser invalido
+         * @property {Array<String>} erro.CIPInvalido.trace - Trace de cada etapa do processamento do Buffer do CIP, deve ter onde ocorreu o erro de CIP invalido
+         * @property {Boolean} erro.isSingleServicePacketNaoRetornado - A resposta ENIP recebida não continha um Single Service Packet com os dados dessa tag solicitada
+         * @property {Boolean} erro.isSingleServicePacketInvalido - O Single Service Packet retornado tem algo erro no Buffer e não é valido
+         * @property {Object} erro.singleServicePacketInvalido - Se isSingleServicePacketInvalido, contém o motivo de ser invalido
+         * @property {Array<String>} erro.singleServicePacketInvalido.trace - Trace de cada etapa do processamento do Buffer do Single Service Packet, deve ter onde ocorreu o erro de Single Service Packet invalido
+         */
+
+        /**
+         * @type {TagLidaMultipla[]}
+         */
+        const tagsLidas = [];
+
+        for (const tag of tags) {
+            tagsLidas.push({
+                tag: tag,
+                isSucesso: false,
+                sucesso: {
+                    isAtomico: false,
+                    atomico: {
+                        dataType: undefined,
+                        valor: undefined
+                    },
+                    isStruct: false,
+                    struct: {
+                        dataTypeStruct: undefined,
+                        valor: undefined
+                    }
+                },
+                erro: {
+                    descricao: 'Não foi retornado informações dessa tag na resposta ENIP.',
+                    isCIPNaoRetornado: true,
+                    isCIPInvalido: false,
+                    CIPInvalido: {
+                        trace: []
+                    },
+                    isSingleServicePacketNaoRetornado: false,
+                    isSingleServicePacketInvalido: false,
+                    singleServicePacketInvalido: {
+                        trace: []
+                    }
+                }
+            })
+        }
+
+        // Se chegou aqui, o Multiple Service Packet foi processado com sucesso. Agora devo iterar sobre os CIPs packets retornados para obter os valores de cada tag solicitada
+        // Um detalhe é que, a resposta de solicitação não retorna o nome da tag solicitada, apenas o seu buffer com tipo do dado e valor, então preciso iterar em ordem que foi buildado no ENIP, que é só o for of nas tags solicitadas
+        for (let indexServiceCIP = 0; indexServiceCIP < ENIPMultipleService.getServicesPackets().length; indexServiceCIP++) {
+
+            const CIPPacket = ENIPMultipleService.getServicesPackets()[indexServiceCIP];
+            const possivelTagSolicitada = tagsLidas[indexServiceCIP];
+
+            // Na teoria não deveria estar como undefined, mas né
+            if (possivelTagSolicitada == undefined) {
+                continue;
+            } else {
+                // Se achou, reseta a mensagem de não encontrado
+                possivelTagSolicitada.erro.isCIPNaoRetornado = false;
+                possivelTagSolicitada.erro.descricao = ''
+            }
+
+
+            // Validar se o Single Service Packet é valido
+            if (!CIPPacket.isValido().isValido) {
+                possivelTagSolicitada.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${CIPPacket.isValido().erro.descricao}`;
+                possivelTagSolicitada.erro.isCIPInvalido = true;
+                possivelTagSolicitada.erro.CIPInvalido.trace = cipPacket.isValido().tracer.getHistoricoOrdenado();
+                continue;
+            }
+
+            // É pra ser um Single Service Packet com os dados da tag lida
+            if (!CIPPacket.isSingleServicePacket()) {
+
+                possivelTagSolicitada.erro.descricao = 'O pacote de resposta não contém um Single Service Packet';
+                possivelTagSolicitada.erro.isSingleServicePacketNaoRetornado = true;
+                continue;
+            }
+
+            // Se for valido e for um Single Service Packet, analisar as informações da tag lida
+            const singleServicePacket = CIPPacket.getAsSingleServicePacket();
+
+            // Validar se o Buffer do Single Service Packet é valido
+            if (!singleServicePacket.isValido().isValido) {
+
+                possivelTagSolicitada.erro.descricao = `O pacote Single Service Packet não é valido, alguma informação no Buffer está incorreta: ${singleServicePacket.isValido().erro.descricao}`;
+                possivelTagSolicitada.erro.isSingleServicePacketInvalido = true;
+                possivelTagSolicitada.erro.singleServicePacketInvalido.trace = singleServicePacket.isValido().tracer.getHistoricoOrdenado();
+                continue;
+            }
+
+            // Se todas as verificaçoes acima fecharem, eu vou ter a tag, o valor e o status que ocorreu
+            // Pegar o Request Path que é o nome da tag 
+
+        }
     }
 
     /**
@@ -1356,26 +1684,26 @@ export class CompactLogixRockwell {
              * Se a operação de escrita foi bem sucedida.
              */
             isSucesso: false,
+            msDetalhes: {
+                /**
+                 * Data atual em millisegundos de quando a escrita foi iniciada e o pacote ENIP foi enviada
+                 * @type {Number}
+                 */
+                dateTimeInicio: new Date().getTime(),
+                /**
+                 * Data atual em millisegundos de quando o pacote ENIP foi recebido e parseado
+                 * @type {Number}
+                 */
+                dateTimeFim: undefined,
+                /**
+                 * Tempo em ms total de escrita da tag
+                 */
+                totalMsEscrita: undefined
+            },
             /**
              * Se sucesso, contém os detalhes da tag escrita
              */
             sucesso: {
-                msDetalhes: {
-                    /**
-                     * Data atual em millisegundos de quando a escrita foi iniciada e o pacote ENIP foi enviada
-                     * @type {Number}
-                     */
-                    dateTimeInicio: new Date().getTime(),
-                    /**
-                     * Data atual em millisegundos de quando o pacote ENIP foi recebido e parseado
-                     * @type {Number}
-                     */
-                    dateTimeFim: undefined,
-                    /**
-                     * Tempo em ms total de escrita da tag
-                     */
-                    totalMsEscrita: undefined
-                },
                 tag: {
                     /**
                      * Se o valor escrito é atomico(numeros DataType de 193 a 202)
@@ -1721,13 +2049,22 @@ export class CompactLogixRockwell {
             CIPGenericBuffer: bufferDataTypeEscrita
         })
 
-        retornoEscrita.sucesso.msDetalhes.dateTimeInicio = new Date().getTime();
+        retornoEscrita.msDetalhes.dateTimeInicio = new Date().getTime();
+
+
+        if (retornoEscrita.sucesso.tag.isAtomico) {
+            this.log(`Tag (${tag}) [Atomico Data Type ${retornoEscrita.sucesso.tag.atomico.dataType.codigo} - ${retornoEscrita.sucesso.tag.atomico.dataType.descricao}] tentando escrever o número: ${retornoEscrita.sucesso.tag.atomico.valor}`);
+        } else if (retornoEscrita.sucesso.tag.isStruct) {
+            if (retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
+                this.log(`Tag (${tag}) [Struct Data Type ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct} - ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.descricao}] tentando escrever a String: ${retornoEscrita.sucesso.tag.struct.valor.valor}`);
+            }
+        }
 
         // Ok, agora enviar a solicitação ENIP
         const statusEnviaENIP = await this.getENIPSocket().enviarENIP(layerENIP);
 
-        retornoEscrita.sucesso.msDetalhes.dateTimeFim = new Date().getTime();
-        retornoEscrita.sucesso.msDetalhes.totalMsEscrita = retornoEscrita.sucesso.msDetalhes.dateTimeFim - retornoEscrita.sucesso.msDetalhes.dateTimeInicio;
+        retornoEscrita.msDetalhes.dateTimeFim = new Date().getTime();
+        retornoEscrita.msDetalhes.totalMsEscrita = retornoEscrita.msDetalhes.dateTimeFim - retornoEscrita.msDetalhes.dateTimeInicio;
 
         // Verificar se o pacote ENIP foi enviado com sucesso
         if (!statusEnviaENIP.isSucesso) {
@@ -1747,6 +2084,7 @@ export class CompactLogixRockwell {
                 retornoEscrita.erro.descricao = `O envio do ENIP retornou: ${statusEnviaENIP.enipEnviar.erro.descricao} `;
                 retornoEscrita.erro.isEnviarENIP = true;
 
+                this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
                 return retornoEscrita;
             }
 
@@ -1761,6 +2099,7 @@ export class CompactLogixRockwell {
                 retornoEscrita.erro.descricao = `O recebimento do ENIP retornou: ${statusEnviaENIP.enipReceber.erro.descricao} `;
                 retornoEscrita.erro.isReceberENIP = true;
 
+                this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
                 return retornoEscrita;
             }
         }
@@ -1774,6 +2113,8 @@ export class CompactLogixRockwell {
             retornoEscrita.erro.descricao = 'O pacote de resposta não é um SendRRData.';
             retornoEscrita.erro.isErroLayers = true;
             retornoEscrita.erro.erroLayers.isSendRRDataInvalido = true;
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
         }
 
@@ -1787,6 +2128,8 @@ export class CompactLogixRockwell {
             retornoEscrita.erro.isErroLayers = true;
             retornoEscrita.erro.erroLayers.isSendRRDataInvalido = true;
             retornoEscrita.erro.erroLayers.sendRRDataInvalido.trace = ENIPSendRRData.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
         }
 
@@ -1796,6 +2139,8 @@ export class CompactLogixRockwell {
             retornoEscrita.erro.descricao = 'O pacote de resposta não contém um serviço CIP';
             retornoEscrita.erro.isErroLayers = true;
             retornoEscrita.erro.erroLayers.isCIPInvalido = true;
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
         }
 
@@ -1807,6 +2152,8 @@ export class CompactLogixRockwell {
             retornoEscrita.erro.isErroLayers = true;
             retornoEscrita.erro.erroLayers.isCIPInvalido = true;
             retornoEscrita.erro.erroLayers.CIPInvalido.trace = ENIPCIP.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
         }
 
@@ -1867,6 +2214,8 @@ export class CompactLogixRockwell {
                 retornoEscrita.erro.isStatusInvalido = true;
                 retornoEscrita.erro.statusInvalido.codigoDeErro = ENIPCIP.getStatusCIP().codigo;
                 retornoEscrita.erro.statusInvalido.descricaoStatus = ENIPCIP.getStatusCIP().descricao;
+
+                this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
                 return retornoEscrita;
             }
 
@@ -1879,6 +2228,8 @@ export class CompactLogixRockwell {
 
             retornoEscrita.erro.isErroLayers = true;
             retornoEscrita.erro.erroLayers.isSingleServicePacket = true;
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
         }
 
@@ -1891,6 +2242,8 @@ export class CompactLogixRockwell {
             retornoEscrita.erro.isErroLayers = true;
             retornoEscrita.erro.erroLayers.isSingleServicePacket = true;
             retornoEscrita.erro.erroLayers.singleServicePacket.trace = ENIPSingleService.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
         }
 
@@ -1901,12 +2254,54 @@ export class CompactLogixRockwell {
             retornoEscrita.erro.isStatusInvalido = true;
             retornoEscrita.erro.statusInvalido.codigoDeErro = ENIPSingleService.getStatus().codigoStatus;
             retornoEscrita.erro.statusInvalido.descricaoStatus = ENIPSingleService.getStatus().descricaoStatus;
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
         }
 
         // Se chegou aqui, a operação de escrita foi bem sucedida
+        if (retornoEscrita.sucesso.tag.isAtomico) {
+            this.log(`Tag (${tag}) [Atomico Data Type ${retornoEscrita.sucesso.tag.atomico.dataType.codigo} - ${retornoEscrita.sucesso.tag.atomico.dataType.descricao}] escrita com o número ${retornoEscrita.sucesso.tag.atomico.valor} em ${retornoEscrita.msDetalhes.totalMsEscrita}ms`);
+        } else if (retornoEscrita.sucesso.tag.isStruct) {
+            if (retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
+                this.log(`Tag (${tag}) [Struct Data Type ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct} - ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.descricao}] escrita com a String ${retornoEscrita.sucesso.tag.struct.valor.valor} em ${retornoEscrita.msDetalhes.totalMsEscrita}ms`);
+            }
+        }
+
         retornoEscrita.isSucesso = true;
         return retornoEscrita;
+    }
+
+    /**
+     * @typedef EscritaTag
+     * @property {String} tag - Nome da tag para escrever
+     * @property {Object} dataType - O Data Type da tag a ser escrita
+     * @property {Boolean} dataType.isAtomico - Se o Data Type é atomico(numeros)
+     * @property {Object} dataType.atomico - Se atomico, contém os detalhes do valor a ser escrito
+     * @property {Number} dataType.atomico.codigoAtomico - Código do tipo de Data Type a ser escrito
+     * @property {Number} dataType.atomico.valor - Valor númerico a ser escrito
+     * @property {Boolean} dataType.isStruct - Se o Data Type é do tipo Struct
+     * @property {Object} dataType.struct - Se isStruct, contém os detalhes do Data Type Struct
+     * @property {Number} dataType.struct.codigoStruct - Código do tipo de Data Type Struct a ser escrito
+     * @property {EscreveTagStructASCIIString82} dataType.struct.classeStruct - Se isStruct, contém a classe da Struct a ser escrita
+     */
+
+    /**
+     * Escreve multiplas tags de uma vez só
+     * @param {EscritaTag[]} tags - Array de tags a serem escritas
+     */
+    async escreveMultiplasTags(tags) {
+        if (tags == undefined) throw new Error('Nenhuma tag informada para escrever');
+        if (!Array.isArray(tags)) throw new Error('As tags informadas não são um array');
+
+
+    }
+
+    /**
+     * Retorna os Data Types disponiveis do controlador CompactLogix
+     */
+    getDataTypes() {
+        return this.#dataTypes;
     }
 
     /**
@@ -2114,5 +2509,20 @@ export class CompactLogixRockwell {
             return retornoConverte;
         }
 
+    }
+
+    /**
+     * Logar uma mensagem
+     * @param {String} msg 
+     */
+    log(msg) {
+        let conteudoMsg = ''
+        if (typeof msg == 'object') {
+            conteudoMsg = JSON.stringify(msg);
+        } else {
+            conteudoMsg = msg;
+        }
+
+        console.log(`[CompactLogix] - ${conteudoMsg}`);
     }
 }

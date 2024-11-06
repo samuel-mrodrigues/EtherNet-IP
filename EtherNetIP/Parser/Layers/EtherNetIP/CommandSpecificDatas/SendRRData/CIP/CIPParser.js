@@ -155,6 +155,7 @@ export class CIPSendRRDataParser {
             },
             /**
              * Tracer com detalhes do parse do buffer
+             * @type {TraceLog}
              */
             tracer: undefined
         }
