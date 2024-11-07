@@ -440,8 +440,9 @@ export class EtherNetIPSocket {
             this.#onConexaoErro(erro);
         })
 
-        novoSocket.on('ready', () => {
+        novoSocket.on('ready', async () => {
             this.#onConexaoEstabelecida();
+            await this.autenticarENIP();
             resolvePromise()
         })
 
@@ -561,6 +562,7 @@ export class EtherNetIPSocket {
         detalhesAutentica.isAutenticou = true;
 
         this.log(`Autenticado com sucesso com o dispositivo EtherNet/IP. Session Handle ID: ${sessionHandlerID}`);
+        this.#estado.emissorEvento.disparaEvento('autenticado');
 
         return detalhesAutentica;
     }
@@ -651,6 +653,13 @@ export class EtherNetIPSocket {
     }
 
     /**
+     * Adicionar um callback para quando a autenticação RegisterSession for estabelecida
+     */
+    onAutenticado() {
+        return this.#estado.emissorEvento.addEvento('autenticado', cb);
+    }
+
+    /**
      * Adicionar um callback para quando ocorrer um erro na conexão
      * @param {CallbackConexaoErro} cb
      */
@@ -702,7 +711,6 @@ export class EtherNetIPSocket {
         this.#estado.conexao.isConectando = false;
 
         this.log('Conexão estabelecida com sucesso.');
-        this.autenticarENIP();
         this.#estado.emissorEvento.disparaEvento('conectado');
     }
 
@@ -1486,6 +1494,15 @@ export class CompactLogixRockwell {
              */
             isSucesso: false,
             /**
+             * Se sucesso, contém os detalhes das tags lidas
+             */
+            sucesso: {
+                /**
+                 * @type {TagLidaMultipla[]}
+                 */
+                tags: []
+            },
+            /**
              * Se ocorreu algum erro durante a requisição
              */
             erro: {
@@ -1530,7 +1547,7 @@ export class CompactLogixRockwell {
             }
 
             // Se o erro foi devido ao não recebimento da resposta da solicitação ENIP
-            if (statusEnviaENIP.enipReceber.isRecebeu) {
+            if (!statusEnviaENIP.enipReceber.isRecebeu) {
 
                 retornoLeituraMultipla.erro.descricao = `Erro ao receber o pacote ENIP: ${statusEnviaENIP.enipReceber.erro.descricao}`;
                 return retornoLeituraMultipla;
@@ -1639,6 +1656,7 @@ export class CompactLogixRockwell {
          * @property {Boolean} erro.isSingleServicePacketInvalido - O Single Service Packet retornado tem algo erro no Buffer e não é valido
          * @property {Object} erro.singleServicePacketInvalido - Se isSingleServicePacketInvalido, contém o motivo de ser invalido
          * @property {Array<String>} erro.singleServicePacketInvalido.trace - Trace de cada etapa do processamento do Buffer do Single Service Packet, deve ter onde ocorreu o erro de Single Service Packet invalido
+         * @property {Boolean} erro.isConverteValor - O valor recebido não foi possivel converter para o valor real da tag
          */
 
         /**
@@ -1673,7 +1691,8 @@ export class CompactLogixRockwell {
                     isSingleServicePacketInvalido: false,
                     singleServicePacketInvalido: {
                         trace: []
-                    }
+                    },
+                    isConverteValor: false
                 }
             })
         }
@@ -1723,10 +1742,38 @@ export class CompactLogixRockwell {
                 continue;
             }
 
-            // Se todas as verificaçoes acima fecharem, eu vou ter a tag, o valor e o status que ocorreu
-            // Pegar o Request Path que é o nome da tag 
+            // Se todas as verificaçoes acima fecharem, o Single Service Packet é valido e posso obter o valor da tag lida
+            const CIPDataGeneric = singleServicePacket.getAsCIPClassCommandSpecificData();
 
+            // Converter o Buffer que contém os dados da tag lida
+            const converteBufferTag = this.#converteDataTypeToValor(CIPDataGeneric);
+            if (converteBufferTag.isConvertido) {
+
+                if (converteBufferTag.conversao.isAtomico) {
+                    possivelTagSolicitada.isSucesso = true;
+                    possivelTagSolicitada.sucesso.isAtomico = true;
+                    possivelTagSolicitada.sucesso.atomico.valor = converteBufferTag.conversao.atomico.valor;
+                    possivelTagSolicitada.sucesso.atomico.dataType = converteBufferTag.conversao.atomico.dataType;
+                } else if (converteBufferTag.conversao.isStruct) {
+                    possivelTagSolicitada.isSucesso = true;
+                    possivelTagSolicitada.sucesso.isStruct = true;
+                    possivelTagSolicitada.sucesso.struct.dataTypeStruct = converteBufferTag.conversao.struct.dataType;
+                    possivelTagSolicitada.sucesso.struct.valor = converteBufferTag.conversao.struct.structData;
+                }
+            } else {
+                // Se ocorreu algum erro pra converter
+
+                possivelTagSolicitada.erro.descricao = `Não foi possível converter o valor do Buffer: ${converteBufferTag.erro.descricao}`;
+                possivelTagSolicitada.erro.isConverteValor = true;
+            }
         }
+
+        // Ok, após validar cada tag lida, posso retornar
+
+        retornoLeituraMultipla.isSucesso = true;
+        retornoLeituraMultipla.sucesso.tags = tagsLidas;
+
+        return retornoLeituraMultipla;
     }
 
     /**

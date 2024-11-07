@@ -1,13 +1,9 @@
 import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
 import { hexDeBuffer } from "../../../../../../../../Utils/Utils.js";
 
-/**
- * O serviço Classe é usado pra solicitar outros serviços em geral que não possuem um builder dedicado a eles. É algo mais manual.
- */
-export class ClasseServiceBuilder {
-
+export class ServicoCustomizavelBuilder {
     /**
-     * Campos necessarios para o serviço Classe
+     * Campos necessarios para o serviço customizado
      */
     #campos = {
         /**
@@ -24,7 +20,16 @@ export class ClasseServiceBuilder {
          * Código de serviço solicitado
          * @type {Number}
          */
-        codigoServico: undefined
+        codigoServico: undefined,
+        /**
+         * A classe generica permite customizar o comando a ser enviado ao dispositivo
+         */
+        CIPGenericClass: {
+            /**
+             * Buffer para appendar ao fim do Request Path para o serviço
+             */
+            buffer: undefined
+        }
     }
 
     /**
@@ -45,6 +50,8 @@ export class ClasseServiceBuilder {
 
             this.setClasse(parametros.classe);
             this.setInstancia(parametros.instancia);
+
+            this.#campos.CIPGenericClass.buffer = Buffer.alloc(0);
         }
 
         return this;
@@ -77,6 +84,25 @@ export class ClasseServiceBuilder {
     }
 
     /**
+     * Setar o Buffer que vai ser appendado no CIP Generic Data desse serviço customizado
+     * @param {Buffer} buffer - Um buffer valido
+     */
+    setCIPGenericData(buffer) {
+        if (buffer == undefined) throw new Error('Buffer não pode ser nulo');
+        if (Buffer.isBuffer(buffer) == false) throw new Error('Buffer precisa ser um Buffer de bytes');
+
+        this.#campos.CIPGenericClass.buffer = buffer;
+    }
+
+    /**
+     * Retorna o Buffer atual setado no CIP Generic Data
+     * @returns {Buffer} - O buffer atual setado
+     */
+    getCIPGenericData() {
+        return this.#campos.CIPGenericClass.buffer;
+    }
+
+    /**
      * Setar o código de serviço solicitado
      * @param {Number} number - Numero do codigo de serviço, tipo 0x4c, 0x01, etc... dependo do serviço 
      */
@@ -87,6 +113,7 @@ export class ClasseServiceBuilder {
 
         return this;
     }
+
 
     /**
      * Criar o buffer Request Path para o serviço Classe
@@ -111,20 +138,20 @@ export class ClasseServiceBuilder {
             tracer: new TraceLog()
         }
 
-        const tracerBuffer = retBuff.tracer.addTipo('ClasseGenericaBuilder');
+        const tracerBuffer = retBuff.tracer.addTipo('ServicoCustomizado');
 
-        tracerBuffer.add(`Iniciando criação do Buffer do serviço de Classe Generica`);
+        tracerBuffer.add(`Iniciando criação do Buffer do serviço customizado`);
 
         // O buffer do cabeçalho do serviço
         const bufferCabecalho = Buffer.alloc(2);
 
-        tracerBuffer.addLog(`Criando buffer do cabeçalho do serviço de ${bufferCabecalho.length} bytes`);
+        tracerBuffer.add(`Criando buffer do cabeçalho do serviço de ${bufferCabecalho.length} bytes`);
 
         // O 1 byte do cabeçalho é o código do service
         bufferCabecalho.writeUInt8(this.#campos.codigoServico, 0);
         tracerBuffer.add(`Setando o campo de código de serviço para ${hexDeBuffer(bufferCabecalho)} no offset 0`);
 
-        // O 2 byte é o tamanho do Request Path abaixo em words
+        // Os próximos 1 byte é o tamanho do Request Path abaixo em words
         bufferCabecalho.writeUInt8(Math.ceil((this.#campos.instancia.length + this.#campos.classe.length) / 2), 1);
         tracerBuffer.add(`Setando o campo de tamanho do Request Path para ${hexDeBuffer(bufferCabecalho)} no offset 1`);
 
@@ -143,19 +170,16 @@ export class ClasseServiceBuilder {
 
         tracerBuffer.add(`Buffer do Request Path do serviço criado com sucesso: ${hexDeBuffer(bufferRequestPath)}`);
 
-        let bufferCompleto = Buffer.concat([bufferCabecalho, bufferRequestPath]);
+        // Criar o buffer completo composto pelo cabeçalho + Request Path + CIP Generic Data(opcional)
+        let bufferCompleto = Buffer.concat([bufferCabecalho, bufferRequestPath, this.#campos.CIPGenericClass.buffer]);
 
         tracerBuffer.add(`Buffer final do Cabeçalho + Request Path: ${hexDeBuffer(bufferCompleto)}`);
 
-        tracerBuffer.add(`Builder Classe Generica finalizado.`);
+        tracerBuffer.add(`Builder Serviço Customizado finalizado.`);
 
         retBuff.isSucesso = true;
         retBuff.sucesso.buffer = bufferCompleto;
 
         return retBuff;
     }
-}
-
-export const CodigosDeServicoClasses = {
-
 }

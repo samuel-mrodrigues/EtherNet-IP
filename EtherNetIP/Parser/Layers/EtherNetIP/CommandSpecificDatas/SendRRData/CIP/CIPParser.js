@@ -2,6 +2,7 @@ import { Servicos, getService } from "../../../../../../Utils/CIPServices.js";
 
 import { SingleServicePacketParser } from "./Servicos/SingleServicePacket.js";
 import { MultipleServicePacketParser } from "./Servicos/MultipleServicePacket.js";
+import { ServicoGenericoParser } from "./Servicos/ServicoGenerico/ServicoGenerico.js";
 import { TraceLog } from "../../../../../../Utils/TraceLog.js";
 import { hexDeBuffer, numeroToHex } from "../../../../../../Utils/Utils.js";
 import { CIPGeneralStatusCodes, getStatusCode } from "../../../../../../Utils/CIPRespondeCodes.js";
@@ -123,12 +124,11 @@ export class CIPSendRRDataParser {
         // Pega todos os bytes restantes do buffer que contém os dados do serviço solicitado
         let bufferServicoDados = Buffer.alloc(1);
 
-        // Se o código de sucesso for == 1, significa que tem mais bytes de dados do serviço
-        if (statusServico == CIPGeneralStatusCodes.Success.hex) {
-            // Pega os bytes que seriam o payload do status do serviço solicitado
+        // Se tiver algumas informações a mais no Buffer, incluir elas
+        if (buff.length > 3) {
             bufferServicoDados = buff.subarray(2);
         } else {
-            // Se retornou algum erro, até continuo, mas vou mandar um buffer vazio Buffer recebido
+            // Se não tiver mais nada, só mando um buffer vazio
             bufferServicoDados.writeUInt8(statusServico, 0);
         }
 
@@ -200,6 +200,12 @@ export class CIPSendRRDataParser {
         if (this.isMultipleServicePacket()) {
             return new MultipleServicePacketParser(this.#campos.bufferPacketdata);
         }
+    }
+    /**
+     * Retorna o serviço como Generico, sem aplicar nenhuma tratativa muito diferente dos outros tipos
+     */
+    getAsServicoGenericoPacket() {
+        return new ServicoGenericoParser(this.#campos.bufferPacketdata);
     }
 
     /**
