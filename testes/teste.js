@@ -5,10 +5,58 @@ const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 4481
 await testeCompact.getENIPSocket().conectar();
 await testeCompact.getENIPSocket().autenticarENIP();
 
-let escreveTag = await testeCompact.lerMultiplasTags(['TESTE', 'TESTE2'])
-console.log(escreveTag);
 
+let leituras = {
+    comErros: [],
+    realizadas: 0
+}
 
+let escritas = {
+    comErros: [],
+    realizadas: 0
+}
 
-// let leituraTag = await testeCompact.lerTag('dasdsad');
-// console.log(leituraTag);
+setInterval(async () => {
+
+    testeCompact.lerTag('TESTE2').then((leituraTag) => {
+        console.log(leituraTag);
+        
+        leituras.realizadas++;
+
+        if (!leituraTag.isSucesso) {
+            leituras.comErros.push(leituraTag);
+        }
+    })
+
+    testeCompact.escreveTag('Tempo_maquina_em_producao_G1', {
+        isAtomico: true,
+        atomico: {
+            codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo,
+            valor: Math.floor(Math.random() * (10000 - 100 + 1)) + 100
+        }
+    }).then((escritaTag) => {
+        console.log(escritaTag);
+        
+        escritas.realizadas++;
+
+        if (!escritaTag.isSucesso) {
+            escritas.comErros.push(escritaTag);
+        }
+    })
+}, 900);
+
+setInterval(() => {
+    
+    console.log(`
+######[ LEITURAS ]######
+Realizadas: ${leituras.realizadas}
+Com erros: ${leituras.comErros.length}
+#######################
+
+######[ ESCRITAS ]######
+Realizadas: ${escritas.realizadas}
+Com erros: ${escritas.comErros.length}
+#######################
+        `);
+    
+}, 5000);
