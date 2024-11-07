@@ -106,6 +106,23 @@ export class EtherNetIPSocket {
                     descricao: ''
                 }
             }
+        },
+        /**
+         * Algumas configurações do comportamento do Socket EtherNet/IP
+         */
+        opcoes: {
+            /**
+             * Se o Socket deve tentar reconectar automaticamente quando a conexão cair
+             */
+            autoReconectar: false,
+            /**
+             * Se foi forçado a desconexão via algum metodo, o Socket não deve tentar reconectar automaticamente
+             */
+            desconectadoManualmente: false,
+            /**
+             * O setInterval ID que verifica o estado da conexão
+             */
+            setIntervalIDVerificaConexao: -1
         }
     }
 
@@ -130,6 +147,39 @@ export class EtherNetIPSocket {
         if (parametros.isHabilitaLogs != undefined && typeof parametros.isHabilitaLogs == 'boolean') {
             this.#configuracao.logs.habilitarLogsConsole = parametros.isHabilitaLogs;
         }
+    }
+
+    /**
+     * Ativa/desativa a reconexão automatica com o dispositivo EtherNet/IP quando a conexão cair.
+     * @param {Boolean} bool - Se deve ativar ou desativar a reconexão automatica
+     */
+    toggleAutoReconnect(bool = false) {
+        this.#estado.opcoes.autoReconectar = bool;
+
+        if (bool) {
+            this.log('Reconexão automatica ativada.');
+
+            if (this.#estado.opcoes.setIntervalIDVerificaConexao == -1) {
+                this.#estado.opcoes.setIntervalIDVerificaConexao = setInterval(() => {
+                    if (!this.#estado.conexao.isConectado) {
+                        this.log('Reconectando automaticamente...');
+                        this.conectar();
+                    }
+                }, 5000);
+            }
+        } else {
+            this.log('Reconexão automatica desativada.');
+            clearInterval(this.#estado.opcoes.setIntervalIDVerificaConexao);
+        }
+    }
+
+    /**
+     * Ativa/desativa os logs no console
+     * @param {Boolean} bool 
+     */
+    toggleLogs(bool = false) {
+
+        this.#configuracao.logs.habilitarLogsConsole = bool;
     }
 
     /**
@@ -366,6 +416,7 @@ export class EtherNetIPSocket {
         }
 
         this.log('Tentando estabelecer conexão...');
+        this.#estado.opcoes.desconectadoManualmente = false;
 
         // Atualiza os estados de conexão
         this.#estado.conexao.isConectando = true;
@@ -400,6 +451,14 @@ export class EtherNetIPSocket {
 
             resolvePromise = resolve;
         })
+    }
+
+    /**
+     * Desconecta com o dispositivo EtherNet/IP
+     */
+    desconectar() {
+        this.#estado.opcoes.desconectadoManualmente = true;
+        this.#estado.socket.destroy();
     }
 
     /**
@@ -627,6 +686,12 @@ export class EtherNetIPSocket {
 
         this.log('Conexão fechada.');
         this.#estado.emissorEvento.disparaEvento('desconectado');
+
+        // Se tiver setado pra reconectar quando a conexão sair
+        if (this.#estado.opcoes.autoReconectar && !this.#estado.opcoes.desconectadoManualmente) {
+            this.log('Reconectando automaticamente...');
+            this.conectar();
+        }
     }
 
     /**
@@ -637,6 +702,7 @@ export class EtherNetIPSocket {
         this.#estado.conexao.isConectando = false;
 
         this.log('Conexão estabelecida com sucesso.');
+        this.autenticarENIP();
         this.#estado.emissorEvento.disparaEvento('conectado');
     }
 
@@ -724,6 +790,9 @@ export class EtherNetIPSocket {
         this.#estado.emissorEvento.disparaEvento('log', msg);
         if (!this.#configuracao.logs.habilitarLogsConsole) return;
 
+        let dataAgora = new Date();
+        let dataFormatada = `${dataAgora.getDate().toString().padStart(2, '0')}/${(dataAgora.getMonth() + 1).toString().padStart(2, '0')}/${dataAgora.getFullYear()} ${dataAgora.getHours().toString().padStart(2, '0')}:${dataAgora.getMinutes().toString().padStart(2, '0')}:${dataAgora.getSeconds().toString().padStart(2, '0')}`;
+
         let ctdMsg = '';
         if (typeof msg == 'object') {
             ctdMsg = JSON.stringify(msg);
@@ -731,7 +800,7 @@ export class EtherNetIPSocket {
             ctdMsg = msg;
         }
 
-        console.log(`[EtherNetIPSocket ${this.#configuracao.ip}:${this.#configuracao.porta}] ${ctdMsg}`);
+        console.log(`[${dataFormatada}] [EtherNetIPSocket ${this.#configuracao.ip}:${this.#configuracao.porta}] ${ctdMsg}`);
     }
 }
 
@@ -747,7 +816,10 @@ export class CompactLogixRockwell {
 
     #configuracao = {
         ip: '',
-        porta: 0
+        porta: 0,
+        logs: {
+            habilitarLogsConsole: false
+        }
     }
 
     /**
@@ -898,6 +970,15 @@ export class CompactLogixRockwell {
                 porta: this.#configuracao.porta
             }
         });
+    }
+
+    /**
+     * Ativa/desativa os logs no console
+     * @param {Boolean} bool 
+     */
+    toggleLogs(bool = false) {
+
+        this.#configuracao.logs.habilitarLogsConsole = bool;
     }
 
     /**
@@ -2516,6 +2597,12 @@ export class CompactLogixRockwell {
      * @param {String} msg 
      */
     log(msg) {
+        this.#estado.emissorEvento.disparaEvento('log', msg);
+        if (!this.#configuracao.logs.habilitarLogsConsole) return;
+
+        let dataAgora = new Date();
+        let dataFormatada = `${dataAgora.getDate().toString().padStart(2, '0')}/${(dataAgora.getMonth() + 1).toString().padStart(2, '0')}/${dataAgora.getFullYear()} ${dataAgora.getHours().toString().padStart(2, '0')}:${dataAgora.getMinutes().toString().padStart(2, '0')}:${dataAgora.getSeconds().toString().padStart(2, '0')}`;
+
         let conteudoMsg = ''
         if (typeof msg == 'object') {
             conteudoMsg = JSON.stringify(msg);
@@ -2523,6 +2610,6 @@ export class CompactLogixRockwell {
             conteudoMsg = msg;
         }
 
-        console.log(`[CompactLogix] - ${conteudoMsg}`);
+        console.log(`[${dataFormatada}] [CompactLogix] - ${conteudoMsg}`);
     }
 }

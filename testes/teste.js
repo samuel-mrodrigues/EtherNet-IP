@@ -2,8 +2,8 @@ import { CompactLogixRockwell } from "./ImplementandoClasseCompactLogix.js";
 
 const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 44818 });
 
+testeCompact.getENIPSocket().toggleAutoReconnect(true)
 await testeCompact.getENIPSocket().conectar();
-await testeCompact.getENIPSocket().autenticarENIP();
 
 
 let leituras = {
