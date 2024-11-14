@@ -1,89 +1,47 @@
 import { hexDeBuffer } from "../EtherNetIP/Utils/Utils.js";
 import { CompactLogixRockwell } from "./ImplementandoClasseCompactLogix.js";
 
-const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 44818 });
+async function testeSondaTags() {
 
-testeCompact.getENIPSocket().toggleAutoReconnect(true)
-await testeCompact.getENIPSocket().conectar();
+    const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 44818 });
 
-let novoPacote = testeCompact.getENIPSocket().getNovoLayerBuilder();
+    testeCompact.getENIPSocket().toggleAutoReconnect(true)
+    await testeCompact.getENIPSocket().conectar();
 
-let sendRRData = novoPacote.buildSendRRData();
+    let novoPacote = testeCompact.getENIPSocket().getNovoLayerBuilder();
 
-let servicoCIP = sendRRData.criarServicoCIP();
+    let sendRRData = novoPacote.buildSendRRData();
 
-let connMan = servicoCIP.buildCIPConnectionManager()
+    let servicoCIP = sendRRData.criarServicoCIP();
 
-let solicitaClassTeste = connMan.getCIPMessage().buildServicoCustomizadoPacket();
+    let connMan = servicoCIP.buildCIPConnectionManager()
 
-solicitaClassTeste.setCodigoServico(0x55)
-solicitaClassTeste.setClasse(Buffer.from([0x20, 0x6b]))
-solicitaClassTeste.setInstancia(Buffer.from([0x25, 0x00, 0x00, 0x02]))
-solicitaClassTeste.setCIPGenericData(Buffer.from([0x02, 0x00, 0x01, 0x00, 0x02, 0x00]))
+    let solicitaClassTeste = connMan.getCIPMessage().buildServicoCustomizadoPacket();
 
-
-let respostaENIP = await testeCompact.getENIPSocket().enviarENIP(novoPacote);
-
-const servicoGenerico = respostaENIP.enipReceber.enipParser.getAsSendRRData().getAsServicoCIP().getAsServicoGenericoPacket();
-
-console.log(hexDeBuffer(servicoGenerico.getCIPClassCommandSpecificData()));
-
-console.log(servicoGenerico);
+    solicitaClassTeste.setCodigoServico(0x55)
+    solicitaClassTeste.setClasse(Buffer.from([0x20, 0x6b]))
+    solicitaClassTeste.setInstancia(Buffer.from([0x25, 0x00, 0x00, 0x02]))
+    solicitaClassTeste.setCIPGenericData(Buffer.from([0x02, 0x00, 0x01, 0x00, 0x02, 0x00]))
 
 
+    let respostaENIP = await testeCompact.getENIPSocket().enviarENIP(novoPacote);
 
+    const servicoGenerico = respostaENIP.enipReceber.enipParser.getAsSendRRData().getAsServicoCIP().getAsServicoGenericoPacket();
 
-// let leituras = {
-//     comErros: [],
-//     realizadas: 0
-// }
+    console.log(hexDeBuffer(servicoGenerico.getCIPClassCommandSpecificData()));
 
-// let escritas = {
-//     comErros: [],
-//     realizadas: 0
-// }
+    console.log(servicoGenerico);
+}
 
-// setInterval(async () => {
+async function testeMultiplasLeituras() {
+    const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 44818 });
 
-//     testeCompact.lerTag('TESTE2').then((leituraTag) => {
-//         console.log(leituraTag);
-        
-//         leituras.realizadas++;
+    testeCompact.getENIPSocket().toggleAutoReconnect(true)
+    await testeCompact.getENIPSocket().conectar();
 
-//         if (!leituraTag.isSucesso) {
-//             leituras.comErros.push(leituraTag);
-//         }
-//     })
+    let teste = await testeCompact.lerMultiplasTags();
+    console.log(teste);
 
-//     testeCompact.escreveTag('Tempo_maquina_em_producao_G1', {
-//         isAtomico: true,
-//         atomico: {
-//             codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo,
-//             valor: Math.floor(Math.random() * (10000 - 100 + 1)) + 100
-//         }
-//     }).then((escritaTag) => {
-//         console.log(escritaTag);
-        
-//         escritas.realizadas++;
+}
 
-//         if (!escritaTag.isSucesso) {
-//             escritas.comErros.push(escritaTag);
-//         }
-//     })
-// }, 900);
-
-// setInterval(() => {
-    
-//     console.log(`
-// ######[ LEITURAS ]######
-// Realizadas: ${leituras.realizadas}
-// Com erros: ${leituras.comErros.length}
-// #######################
-
-// ######[ ESCRITAS ]######
-// Realizadas: ${escritas.realizadas}
-// Com erros: ${escritas.comErros.length}
-// #######################
-//         `);
-    
-// }, 5000);
+testeMultiplasLeituras();

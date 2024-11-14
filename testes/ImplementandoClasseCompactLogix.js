@@ -1522,6 +1522,9 @@ export class CompactLogixRockwell {
         // Um for em cada tag solicitada para adicionar ao Multiple Service
         for (const tag of tags) {
 
+            // Se a tag já foi adicionado, não permito adicionar novamente
+            if (layerMultipleService.getServicesPackets().find(servicePacket => servicePacket.servico.getStringPath() == tag) != undefined) continue;
+
             // Adiciona um Single Service ao Multiple Service
             let layerSingleService = layerMultipleService.addSingleServicePacket();
 
@@ -1603,6 +1606,13 @@ export class CompactLogixRockwell {
                 case CIPGeneralStatusCodes.PathSegmentError.hex: {
                     break
                 }
+                /**
+                 * Alguns dos serviços solicitados no CIP embeded deu erro, porém permito continuar pois pode haver outras que deram certo
+                 */
+                case CIPGeneralStatusCodes.EmbeddedServiceError.hex: {
+
+                    break;
+                }
                 // Pra qualquer outro tipo de erro, eu não permito continuar
                 default: {
 
@@ -1657,6 +1667,10 @@ export class CompactLogixRockwell {
          * @property {Object} erro.singleServicePacketInvalido - Se isSingleServicePacketInvalido, contém o motivo de ser invalido
          * @property {Array<String>} erro.singleServicePacketInvalido.trace - Trace de cada etapa do processamento do Buffer do Single Service Packet, deve ter onde ocorreu o erro de Single Service Packet invalido
          * @property {Boolean} erro.isConverteValor - O valor recebido não foi possivel converter para o valor real da tag
+         * @property {Boolean} erro.isSingleServicePacketStatusErro - O Single Service Packet retornou um status de erro
+         * @property {Object} erro.singleServicePacketStatusErro - Se isSingleServicePacketStatusErro, contém o motivo do erro de status
+         * @property {Number} erro.singleServicePacketStatusErro.codigo - O código de status retornado
+         * @property {String} erro.singleServicePacketStatusErro.descricao - A descrição do status retornado 
          */
 
         /**
@@ -1665,7 +1679,7 @@ export class CompactLogixRockwell {
         const tagsLidas = [];
 
         for (const tag of tags) {
-            tagsLidas.push({
+            let novoObjData = {
                 tag: tag,
                 isSucesso: false,
                 sucesso: {
@@ -1692,10 +1706,25 @@ export class CompactLogixRockwell {
                     singleServicePacketInvalido: {
                         trace: []
                     },
-                    isConverteValor: false
+                    isConverteValor: false,
+                    isSingleServicePacketStatusErro: false,
+                    singleServicePacketStatusErro: {
+                        codigo: undefined,
+                        descricao: ''
+                    }
                 }
-            })
+            }
+
+            if (tagsLidas.find(tagObj => tagObj.tag == novoObjData.tag) != undefined) continue
+            
+            tagsLidas.push(novoObjData);
         }
+
+        /**
+         * Leituras de tags que foram consideradas parciais e precisam ser lidas novamente em outra solicitação
+         * @type {Array[]}
+         */
+        let tagsPartialTransfer = []
 
         // Se chegou aqui, o Multiple Service Packet foi processado com sucesso. Agora devo iterar sobre os CIPs packets retornados para obter os valores de cada tag solicitada
         // Um detalhe é que, a resposta de solicitação não retorna o nome da tag solicitada, apenas o seu buffer com tipo do dado e valor, então preciso iterar em ordem que foi buildado no ENIP, que é só o for of nas tags solicitadas
@@ -1718,7 +1747,7 @@ export class CompactLogixRockwell {
             if (!CIPPacket.isValido().isValido) {
                 possivelTagSolicitada.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${CIPPacket.isValido().erro.descricao}`;
                 possivelTagSolicitada.erro.isCIPInvalido = true;
-                possivelTagSolicitada.erro.CIPInvalido.trace = cipPacket.isValido().tracer.getHistoricoOrdenado();
+                possivelTagSolicitada.erro.CIPInvalido.trace = CIPPacket.isValido().tracer.getHistoricoOrdenado();
                 continue;
             }
 
@@ -1740,6 +1769,27 @@ export class CompactLogixRockwell {
                 possivelTagSolicitada.erro.isSingleServicePacketInvalido = true;
                 possivelTagSolicitada.erro.singleServicePacketInvalido.trace = singleServicePacket.isValido().tracer.getHistoricoOrdenado();
                 continue;
+            }
+
+            // Se o buffer é valido, validar o status retornado do service packet
+            if (!singleServicePacket.isStatusSucesso().isSucesso) {
+
+                // Foi retornado algum erro pra esse service packet, validar o tipo do erro
+                switch (singleServicePacket.getStatus().codigoStatus) {
+                    // Se for um partial transfer, preciso colocar essa tag pra ler de novo pois não coube na requisição a leitura dela
+                    case CIPGeneralStatusCodes.PartialTransfer.hex: {
+                        tagsPartialTransfer.push(possivelTagSolicitada.tag);
+                        continue;
+                    }
+                    default: {
+                        possivelTagSolicitada.erro.descricao = `O pacote Single Service Packet retornou um status de erro: ${singleServicePacket.getStatus().descricaoStatus}`;
+
+                        possivelTagSolicitada.erro.isSingleServicePacketStatusErro = true;
+                        possivelTagSolicitada.erro.singleServicePacketStatusErro.codigo = singleServicePacket.getStatus().codigoStatus;
+                        possivelTagSolicitada.erro.singleServicePacketStatusErro.descricao = singleServicePacket.getStatus().descricaoStatus;
+                        continue;
+                    }
+                }
             }
 
             // Se todas as verificaçoes acima fecharem, o Single Service Packet é valido e posso obter o valor da tag lida
@@ -1766,6 +1816,40 @@ export class CompactLogixRockwell {
                 possivelTagSolicitada.erro.descricao = `Não foi possível converter o valor do Buffer: ${converteBufferTag.erro.descricao}`;
                 possivelTagSolicitada.erro.isConverteValor = true;
             }
+        }
+
+        // Se houveram tags que precisam ser lidas novamente, fazer a leitura delas
+        if (tagsPartialTransfer.length > 0) {
+
+            // Isso causará um efeito em cascata para leituras de novas tags se as chamadas subsequentes precisarem dividir as leituras em mais chamados, e ta tudo bem!
+            let leituraTagsPartialTransfer = await this.lerMultiplasTags(tagsPartialTransfer);
+
+            // Se não foi possível obter uma resposta enviar ou receber a resposta ENIP do dispositivo
+            if (!leituraTagsPartialTransfer.isSucesso) {
+
+                // Pegar as tags que foram solicitadas e anotar o motivo do erro
+                for (const tagSolicitada of tagsPartialTransfer) {
+                    const tagObjDetalhes = tagsLidas.find(tag => tag.tag == tagSolicitada);
+
+                    if (tagObjDetalhes == undefined) continue;
+
+                    // Anotar o erro de sem respsota
+                    tagObjDetalhes.erro.descricao = `Erro ao solicitar a leitura da tag ${tagSolicitada}: ${leituraTagsPartialTransfer.erro.descricao}`;
+                    tagObjDetalhes.erro.isCIPNaoRetornado = true;
+                }
+            }
+
+            // Ok, se a leitura dos partials deu certo, significa que pelo menos algum dos serviços solicitados foi lido com sucesso. 
+
+            // Analisar cada tag lida
+            for (const tagLida of leituraTagsPartialTransfer.sucesso.tags) {
+
+                let tagObjDetalhes = tagsLidas.find(tag => tag.tag == tagLida.tag);
+                if (tagObjDetalhes == undefined) continue;
+
+                tagObjDetalhes = { ...tagLida }
+            }
+
         }
 
         // Ok, após validar cada tag lida, posso retornar
@@ -1998,7 +2082,7 @@ export class CompactLogixRockwell {
                          * Array de mensagens com o historico de cada etapa do processamento do Buffer, conterá onde ocorreu o erro no Buffer
                          */
                         trace: []
-                    }
+                    },
                 },
             }
         }
