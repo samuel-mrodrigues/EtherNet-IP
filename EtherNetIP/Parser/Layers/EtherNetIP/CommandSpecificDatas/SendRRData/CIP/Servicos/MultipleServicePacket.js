@@ -260,6 +260,7 @@ export class MultipleServicePacketParser {
             },
             /**
              * Detalhes do processo de parse do Multiple Service Packet
+             * @type {TraceLog}
              */
             tracer: undefined
         }

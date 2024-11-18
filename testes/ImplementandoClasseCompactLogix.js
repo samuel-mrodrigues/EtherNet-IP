@@ -5,6 +5,7 @@ import { EtherNetIPLayerBuilder } from "../EtherNetIP/Builder/Layers/EtherNetIP/
 import { EtherNetIPLayerParser } from "../EtherNetIP/Parser/Layers/EtherNetIP/EtherNetIPParser.js";
 import { hexDeBuffer } from "../EtherNetIP/Utils/Utils.js";
 import { CIPGeneralStatusCodes } from "../EtherNetIP/Utils/CIPRespondeCodes.js";
+import { SingleServicePacketServiceBuilder } from "../EtherNetIP/Builder/Layers/EtherNetIP/CommandSpecificDatas/SendRRData/CIP/Servicos/SingleServicePacket/SingleServicePacket.js";
 
 /**
  * Uma classe auxiliar para tratar com a comunicação para o protocolo EtherNet IP(Industrial Protocol)
@@ -1519,11 +1520,33 @@ export class CompactLogixRockwell {
         const layerMultipleService = layerConnectionManager.getCIPMessage().buildMultipleServicePacket();
         layerMultipleService.setAsMessageRouter();
 
-        // Um for em cada tag solicitada para adicionar ao Multiple Service
-        for (const tag of tags) {
+        // Maximo de bytes que podem ser enviados em um pacote ENIP
+        const maximoBytes = 512;
+
+        // Se o pacote ENIP atual ultrapassou o limite de bytes
+        let isAtingiuLimiteTags = false;
+
+        // Array de tags que ultrapassaram o limite de bytes e que serão enviados em um novo ENIP
+        const tagsUltrapassaramLimite = [];
+
+        // Array de todas as tags em sequencia ordenada que foram enviadas no pacote ENIP
+        const tagsEmSequencia = [];
+
+        // Ordenar as tags pelo menor ao maior tamanho. É importante que esteja ordenado pois a resposta do dispositivo também retorna a mesma sequencia de tags(e como ele não retorna na resposta o nome da tag, o index do serviço é a unica forma de reconhecer)
+        // Se não ordenar, pode acabar pulando uma tag grande na sequencia que não caberia, porém a proxima cabe, o que resulta no meu array ser a sequencia A, B, C(digamos que esse era a tag grande que nao cabe), D(e essa pequena cabe) e na resposta eu receber A, B, D.
+        for (const tag of tags.sort((a, b) => a.length - b.length)) {
 
             // Se a tag já foi adicionado, não permito adicionar novamente
             if (layerMultipleService.getServicesPackets().find(servicePacket => servicePacket.servico.getStringPath() == tag) != undefined) continue;
+
+            // Adicionar a tag ao array de tags solicitadas(mesmo que não caiba, eu adiciono pra mais pra frente eu ja ter o array completo de todas as tags solicitadas, tenham elas sido enviadas nesse pacote ENIP ou em outro..)
+            tagsEmSequencia.push(tag);
+
+            // Se já atingiu o limite vou pular, pois como o array foi ordenado crescente, eu sei que as próximas tags também não vão caber nesse ENIP. Assim evito ficar gerando Buffer de forma desnecessária.
+            if (isAtingiuLimiteTags) {
+                tagsUltrapassaramLimite.push(tag);
+                continue;
+            }
 
             // Adiciona um Single Service ao Multiple Service
             let layerSingleService = layerMultipleService.addSingleServicePacket();
@@ -1533,6 +1556,26 @@ export class CompactLogixRockwell {
                 nome: tag,
                 CIPGenericBuffer: Buffer.from([0x01, 0x00])
             })
+
+            let bufferENIP = layerENIP.criarBuffer();
+            if (!bufferENIP.isSucesso) {
+
+                retornoLeituraMultipla.erro.descricao = `Erro ao verificar tamanho do Buffer para o Single Service Pack da tag ${tag}: ${bufferENIP.erro.descricao}`;
+                return retornoLeituraMultipla;
+            }
+
+            // Veficiar se não ultrapassou o limite de bytes
+            if (bufferENIP.sucesso.buffer.length >= maximoBytes) {
+
+                // Se ultrapassou o limite de bytes, remover o Single Service Packet que foi adicionado
+                layerMultipleService.deleteSingleServicePacket(layerSingleService.id);
+
+                // Adicionar a lista de tags que ultrapassaram o limite
+                tagsUltrapassaramLimite.push(tag);
+
+                // Seta pras próximas tags não serem adicionadas a esse ENIP
+                isAtingiuLimiteTags = true;
+            }
         }
 
         // Ok, adicionar os layers, tentar enviar o ENIP
@@ -1678,7 +1721,8 @@ export class CompactLogixRockwell {
          */
         const tagsLidas = [];
 
-        for (const tag of tags) {
+        // Iterar sobre as tags solicitadas para verificar se todas foram retornadas na resposta ENIP. Essa ordem do array deve ser exatamente como foi enviada no pacote ENIP
+        for (const tag of tagsEmSequencia) {
             let novoObjData = {
                 tag: tag,
                 isSucesso: false,
@@ -1716,7 +1760,7 @@ export class CompactLogixRockwell {
             }
 
             if (tagsLidas.find(tagObj => tagObj.tag == novoObjData.tag) != undefined) continue
-            
+
             tagsLidas.push(novoObjData);
         }
 
@@ -1732,6 +1776,7 @@ export class CompactLogixRockwell {
 
             const CIPPacket = ENIPMultipleService.getServicesPackets()[indexServiceCIP];
             const possivelTagSolicitada = tagsLidas[indexServiceCIP];
+
 
             // Na teoria não deveria estar como undefined, mas né
             if (possivelTagSolicitada == undefined) {
@@ -1847,9 +1892,43 @@ export class CompactLogixRockwell {
                 let tagObjDetalhes = tagsLidas.find(tag => tag.tag == tagLida.tag);
                 if (tagObjDetalhes == undefined) continue;
 
-                tagObjDetalhes = { ...tagLida }
+                Object.assign(tagObjDetalhes, tagLida);
             }
 
+        }
+
+        // Se houverem tags que ultrapassaram o limite de bytes, fazer a leitura delas também.
+        if (tagsUltrapassaramLimite.length > 0) {
+
+            // Isso causará um efeito em cascata para leituras de novas tags se as chamadas subsequentes precisarem dividir as leituras em mais chamados, e ta tudo bem!
+            let leiturasTagsUltrapassaramLimite = await this.lerMultiplasTags(tagsUltrapassaramLimite);
+
+            // Se não foi possível obter uma resposta enviar ou receber a resposta ENIP do dispositivo
+            if (!leiturasTagsUltrapassaramLimite.isSucesso) {
+
+                // Pegar as tags que foram solicitadas e anotar o motivo do erro
+                for (const tagSolicitada of tagsUltrapassaramLimite) {
+                    const tagObjDetalhes = tagsLidas.find(tag => tag.tag == tagSolicitada);
+
+                    if (tagObjDetalhes == undefined) continue;
+
+                    // Anotar o erro de sem respsota
+                    tagObjDetalhes.erro.descricao = `Erro ao solicitar a leitura da tag ${tagSolicitada}: ${leiturasTagsUltrapassaramLimite.erro.descricao}`;
+                    tagObjDetalhes.erro.isCIPNaoRetornado = true;
+                }
+            } else {
+
+                // Ok, se a leitura dos partials deu certo, significa que pelo menos algum dos serviços solicitados foi lido com sucesso.
+
+                // Analisar cada tag lida
+                for (const tagLida of leiturasTagsUltrapassaramLimite.sucesso.tags) {
+
+                    let tagObjDetalhes = tagsLidas.find(tag => tag.tag == tagLida.tag);
+                    if (tagObjDetalhes == undefined) continue;
+
+                    Object.assign(tagObjDetalhes, tagLida);
+                }
+            }
         }
 
         // Ok, após validar cada tag lida, posso retornar
@@ -2505,8 +2584,608 @@ export class CompactLogixRockwell {
     async escreveMultiplasTags(tags) {
         if (tags == undefined) throw new Error('Nenhuma tag informada para escrever');
         if (!Array.isArray(tags)) throw new Error('As tags informadas não são um array');
+        if (tags.length == 0) throw new Error('Nenhuma tag informada para escrever');
+
+        /**
+         * Detalhes do Data Type Struct ASCII String 82
+         * @typedef DetalheTagStructASCIIString82
+         * @property {String} valor - String para ser escrita
+         */
+
+        /**
+         * @typedef RetornoTagEscritaMultipla
+         * @property {String} tag - Nome da tag escrita
+         * @property {Object} dataTypeDados - Dados do Data Type da tag escrita
+         * @property {Boolean} dataTypeDados.isValido - Se o Data Type originalmente informado corresponde com algum tipo valido
+         * @property {Boolean} dataTypeDados.isAtomico - Se o Data Type é atomico(numeros)
+         * @property {Object} dataTypeDados.atomico - Se atomico, contém os detalhes do valor a ser escrito
+         * @property {Number} dataTypeDados.atomico.codigoAtomico - Código do tipo de Data Type a ser escrito
+         * @property {Number} dataTypeDados.atomico.valor - Valor númerico a ser escrito
+         * @property {Boolean} dataTypeDados.isStruct - Se o Data Type é do tipo Struct
+         * @property {Object} dataTypeDados.struct - Se isStruct, contém os detalhes do Data Type Struct
+         * @property {Number} dataTypeDados.struct.codigoStruct - Código do tipo de Data Type Struct a ser escrito
+         * @property {DetalheTagStructASCIIString82} dataTypeDados.struct.classeStruct - Se isStruct, contém a classe da Struct a ser escrita
+         * @property {Boolean} isSucesso - Se a escrita foi realizada com sucesso no dispositivo
+         * @property {Object} erro - Se não isSucesso, contém os detalhes do erro ocorrido
+         * @property {String} erro.descricao - Descrição generica do erro ocorrido
+         * @property {Boolean} erro.isDataTypeInvalido - Se o Data Type informado contém informações incorretas(tipo errado, não existe, valores incorretos para tipos especificos)
+         * @property {Boolean} erro.isErroGerarBuffer - Se ocorreu um erro ao gerar o Buffer do SingleServicePacket para escrita da tag
+         * @property {Boolean} erro.isCIPNaoRetornado - Se o pacote de resposta não retornou um CIP Packet pra essa tag
+         * @property {Boolean} erro.isCIPInvalido - Se o pacote CIP recebido na resposta não é valido(erro de Buffer em algum offset)
+         * @property {Object} erro.CIPInvalido - Se isCIPInvalido, contém os detalhes do erro
+         * @property {String[]} erro.CIPInvalido.trace - Trace de cada etapa do processamento do Buffer CIP
+         * @property {Boolean} erro.isSingleServicePacketNaoRetornado - Se o pacote de resposta não retornou um Single Service Packet pra essa tag
+         * @property {Boolean} erro.isSingleServicePacketInvalido - Se o pacote Single Service Packet recebido na resposta não é valido(erro de Buffer em algum offset)
+         * @property {Object} erro.singleServicePacketInvalido - Se isSingleServicePacketInvalido, contém os detalhes do erro
+         * @property {String[]} erro.singleServicePacketInvalido.trace - Trace de cada etapa do processamento do Buffer Single Service Packet
+         * @property {Boolean} erro.isSingleServicePacketStatusErro- Se o pacote Single Service Packet retornou um status de erro
+         * @property {Object} erro.singleServicePacketStatusInvalido - Se isSingleServicePacketStatusErro, contém os detalhes do erro
+         * @property {String} erro.singleServicePacketStatusInvalido.codigoStatus - Código do status de erro retornado
+         * @property {String} erro.singleServicePacketStatusInvalido.descricaoStatus - Descrição do status de erro retornado
+         */
+
+        const retornoEscrita = {
+            /**
+             * Se a operação de enviar e receber o pacote ENIP foi bem sucedida. Isso não garante que as tags foram escritas, apenas que pelo menos o pacote foi enviado ao dispositivo, e o dispositivo reconheceu e devolveu algo.
+             * Se isSucesso for true, analise isSucesso da tag individualmente para saber se a tag foi escrita com sucesso
+             */
+            isSucesso: false,
+            sucesso: {
+                /**
+                 * Retorna as informações das tags solicitadas para escrever
+                 * @type {RetornoTagEscritaMultipla[]}
+                */
+                tags: [],
+            },
+            erro: {
+                descricao: ''
+            }
+        }
+
+        // Preparar os layers iniciais
+        const layerENIP = this.getENIPSocket().getNovoLayerBuilder();
+        const layerConnectionManager = layerENIP.buildSendRRData().criarServicoCIP().buildCIPConnectionManager();
+
+        // Adicionar o Multiple Service Packet que é o pacote que contém as informações das escritas das tags
+        const layerMultipleService = layerConnectionManager.getCIPMessage().buildMultipleServicePacket();
+        layerMultipleService.setAsMessageRouter();
+
+        /**
+         * @typedef PreVerificaTags 
+         * @property {Boolean} isValidoParaEnviar - Se a tag possui seu data type corretamente definido assim como seu valor
+         * @property {RetornoTagEscritaMultipla} tagObjeto - Objeto tag com suas informações
+         * @property {SingleServicePacketServiceBuilder} servicePacket - Builder do Service Packet da tag
+         * @property {Number} tamanhoServicePacket - Tamanho em bytes que o serviço packet ocupara
+         */
+
+        /**
+         * Armazeno todas as escritas de tags pendentes.
+         * @type {PreVerificaTags[]}
+         */
+        const tagsPendenteEscrita = []
+
+        // Realizar a verificação de todas as tags solicitadas
+        for (const tag of tags) {
+
+            // Se a tag já foi adicionado, não permito adicionar novamente
+            if (tagsPendenteEscrita.find(t => t.tagObjeto.tag == tag.tag) != undefined) continue;
+
+            const layerSingleService = layerMultipleService.novoSingleServicePacketTemplate();
+
+            /**
+             * @type {PreVerificaTags}
+             */
+            let novoObjTag = {
+                isValidoParaEnviar: false,
+                servicePacket: layerSingleService,
+                tamanhoServicePacket: 0,
+                tagObjeto: {
+                    tag: tag,
+                    dataTypeDados: {
+                        isValido: false,
+                        isAtomico: false,
+                        isStruct: false,
+                        atomico: {
+                            codigoAtomico: undefined,
+                            valor: undefined
+                        },
+                        struct: {
+                            codigoStruct: undefined,
+                            classeStruct: undefined
+                        }
+                    },
+                    isSucesso: false,
+                    erro: {
+                        descricao: '',
+                        isDataTypeInvalido: false,
+                        isCIPInvalido: false,
+                        isCIPNaoRetornado: false,
+                        isErroGerarBuffer: false,
+                        isSingleServicePacketInvalido: false,
+                        isSingleServicePacketNaoRetornado: false,
+                        isSingleServicePacketStatusErro: false,
+                        CIPInvalido: {
+                            trace: []
+                        },
+                        singleServicePacketInvalido: {
+                            trace: []
+                        },
+                        singleServicePacketStatusInvalido: {
+                            codigoStatus: '',
+                            descricaoStatus: ''
+                        }
+                    }
+                }
+            }
+
+            tagsPendenteEscrita.push(novoObjTag);
+
+            // Preciso verificar cada tag e configurar o Single Service Packet com as informações da tag
+
+            if (tag.dataType.isAtomico) {
+
+                // Validar o tipo atomico informado
+                const detalhesDataType = this.getDataTypeAtomico(tag.dataType.atomico.codigoAtomico);
+                if (detalhesDataType == undefined) {
+                    novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
+                    novoObjTag.tagObjeto.erro.descricao = `Data Type atomico informado não existe: ${tag.dataType.atomico.codigoAtomico}`;
+                    continue;
+                }
+
+                // Como é um tipo atomico, verificar se o valor informado é um numero
+                if (isNaN(tag.dataType.atomico.valor)) {
+                    novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
+                    novoObjTag.tagObjeto.erro.descricao = `O valor informado (${tag.dataType.atomico.valor}) não é um compatível para o Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}).`;
+                    continue;
+                }
+
+                const numeroParaEscrita = tag.dataType.atomico.valor;
+
+                // Validar se o valor informado vai caber no data type informado
+
+                // Pra caso o numero possa ser positivo ou negativo
+                if (detalhesDataType.isSigned) {
 
 
+                    let valorMinimo = -(2 ** ((detalhesDataType.tamanho * 8) - 1));
+                    let valorMaximo = (2 ** ((detalhesDataType.tamanho * 8) - 1)) - 1;
+
+                    if (numeroParaEscrita < valorMinimo) {
+                        retornoEscrita.erro.isTipoValorInvalido = true;
+                        retornoEscrita.erro.descricao = `O valor informado (${numeroParaEscrita}) ultrapassa o limite minimo do Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}). Valor minimo: ${valorMinimo}`;
+                        continue;
+                    } else if (numeroParaEscrita > valorMaximo) {
+                        retornoEscrita.erro.isTipoValorInvalido = true;
+                        retornoEscrita.erro.descricao = `O valor informado (${numeroParaEscrita}) ultrapassa o limite maximo do Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}). Valor maximo: ${valorMaximo}`;
+                        continue;
+                    }
+
+                } else {
+                    // Numeros positivos (unsigned)
+
+                    if (numeroParaEscrita < 0) {
+                        retornoEscrita.erro.descricao = `O valor informado (${numeroParaEscrita}) é negativo, porém o Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}) não aceita valores negativos.`;
+                        retornoEscrita.erro.isTipoValorInvalido = true;
+                        continue;
+                    }
+
+                    const valorMaximo = (2 ** (detalhesDataType.tamanho * 8)) - 1;
+                    if (numeroParaEscrita > valorMaximo) {
+                        retornoEscrita.erro.descricao = `O valor informado (${numeroParaEscrita}) ultrapassa o limite maximo do Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}). Valor maximo: ${valorMaximo}`;
+                        retornoEscrita.erro.isTipoValorInvalido = true;
+                        continue;
+                    }
+                }
+
+                // Ok com todas as verificações, criar o Buffer de escrita pro Service Packet
+                // Para tipos numericos, o Buffer é composto de:
+                // 2 Bytes do Data Type atomico
+                // 2 Bytes do Tamanho do Data Type. Para numeros atomicos, é sempre 1.
+                const bufferDataType = Buffer.alloc(4);
+
+                bufferDataType.writeUInt16LE(detalhesDataType.codigo, 0);
+                bufferDataType.writeUInt16LE(1, 2);
+
+                // O resto do buffer é o tamanho do Data Type em bytes
+                const bufferValor = Buffer.alloc(detalhesDataType.tamanho);
+                bufferValor.writeUIntLE(numeroParaEscrita, 0, detalhesDataType.tamanho);
+
+                // Juntar os dois e retornar ele
+                const bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferValor]);
+
+                layerSingleService.setAsSetAttribute({
+                    nome: tag.tag,
+                    CIPGenericBuffer: bufferDataTypeEscrita
+                })
+
+                // Definir como valido para enviar nas requisições
+                novoObjTag.isValidoParaEnviar = true;
+
+                // Salvar também as informações do data type
+                novoObjTag.tagObjeto.dataTypeDados.isValido = true;
+                novoObjTag.tagObjeto.dataTypeDados.isAtomico = true;
+                novoObjTag.tagObjeto.dataTypeDados.atomico.codigoAtomico = detalhesDataType.codigo;
+                novoObjTag.tagObjeto.dataTypeDados.atomico.valor = numeroParaEscrita;
+
+            } else if (tag.dataType.isStruct) {
+
+                // Se o Struct informado é uma String ASCII 82
+                switch (tag.dataType.struct.codigoStruct) {
+                    case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+
+                        /**
+                         * @type {EscreveTagStructASCIIString82}
+                         */
+                        const classeStructASCIIString82 = tag.dataType.struct.classeStruct;
+                        if (classeStructASCIIString82.string == undefined) {
+                            novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
+                            novoObjTag.tagObjeto.erro.descricao = 'O Data Type Struct informado é uma String ASCII 82, porém a string a ser escrita não foi informada';
+                            continue;
+                        }
+
+                        let stringParaEscrever = classeStructASCIIString82.string.toString();
+
+                        // Como o tamanho maximo permitido é 82, eu corto por garantia se for maior
+                        if (stringParaEscrever.length > 82) {
+                            stringParaEscrever = stringParaEscrever.substring(0, 82);
+                        }
+
+                        // Ok agora com as informações da Struct da string, vou montar o Buffer completo
+                        // O Buffer pra escrever uma Struct String é composto de:
+                        // 2 Bytes do Data Type Struct que é 672
+                        // 2 Bytes do Tipo da Struct, que no caso é ASCII String 82
+                        // 2 Bytes pro tamanho do Tipo da Struct, que no caso também é 1 apenas
+                        // x Bytes restantes são para a string em si
+                        let bufferDataType = Buffer.alloc(6);
+
+                        // Escrever o Data Type Struct
+                        bufferDataType.writeUInt16LE(672, 0);
+
+                        // Escrever o Tipo da Struct
+                        bufferDataType.writeUInt16LE(this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct, 2);
+
+                        // Escrever o tamanho do Tipo da Struct(que é sempre 1 pra esse caso de Struct)
+                        bufferDataType.writeUInt16LE(1, 4);
+                        // -------
+
+                        // Agora o resto do buffer de 88 bytes de
+                        // 4 Bytes contendo o tamanho da string
+                        // 84 Bytes contendo a string em si
+                        let bufferString = Buffer.alloc(88);
+                        bufferString.writeUInt32LE(stringParaEscrever.length, 0);
+
+                        bufferString.write(stringParaEscrever, 4, stringParaEscrever.length);
+
+                        // Juntar os dois buffers
+                        const bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferString]);
+
+                        layerSingleService.setAsSetAttribute({
+                            nome: tag.tag,
+                            CIPGenericBuffer: bufferDataTypeEscrita
+                        })
+
+                        /**
+                         * @type {DetalheTagStructASCIIString82}
+                         */
+                        const retornoEscritaStructASCIIString82 = {
+                            valor: stringParaEscrever
+                        }
+
+                        // Setar como validado para enviar no ENIP
+                        novoObjTag.isValidoParaEnviar = true;
+
+                        // Setar as informações do data type da tag
+                        novoObjTag.tagObjeto.dataTypeDados.isValido = true;
+
+                        novoObjTag.tagObjeto.dataTypeDados.isStruct = true;
+                        novoObjTag.tagObjeto.dataTypeDados.struct = {
+                            classeStruct: retornoEscritaStructASCIIString82,
+                            codigoStruct: this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct
+                        }
+                        break;
+                    }
+                    default: {
+                        novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
+                        novoObjTag.tagObjeto.erro.descricao = `Tipo de Struct informada '${tag.dataType.struct.codigoStruct}' não existe ou não é suportado ainda.`;
+                        continue;
+                    }
+                }
+            } else {
+                // Para qualquer tipo invalido ou não suportado ainda
+                novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
+                novoObjTag.tagObjeto.erro.descricao = `O Data Type informado para a tag '${tag.tag}' não é valido ou não é suportado ainda`;
+                continue;
+            }
+
+            // Se chegou aqui, a tag foi validada com sucesso com seu data type e valor correto
+
+            // Gerar o buffer do Service Packet pra salvar o tamanho em bytes
+            let gerarBufferService = layerSingleService.criarBuffer();
+            if (!gerarBufferService.isSucesso) {
+
+                novoObjTag.tagObjeto.erro.descricao = `Erro ao gerar o buffer do Service Packet para a tag ${tag.tag}: ${gerarBufferService.erro.descricao}. Trace Log: ${gerarBufferService.tracer.getHistoricoOrdenado().join(' -> ')}`;
+                continue;
+            }
+
+            // Salvar o tamanho do Service Packet
+            novoObjTag.tamanhoServicePacket = gerarBufferService.sucesso.buffer.length;
+        }
+
+        // Após realizar a validação de todas as tags solicitadas, filtrar somente as que foram validadas com sucesso com seus tipos e valores corretos.
+        const tagsValidasDeEscrita = tagsPendenteEscrita.filter(t => t.isValidoParaEnviar);
+
+        // Se nenhuma tag tiver sido validada, retorno logo o erro
+        if (tagsValidasDeEscrita.length == 0) {
+            retornoEscrita.erro.descricao = `Nenhuma das ${tagsPendenteEscrita.length} tags informadas são validas para tentar enviar a escrita de tag.`;
+            return retornoEscrita;
+        }
+
+        // Após a validação das tags e seus SingleService gerados. Vou organizar pra prepar o envio do pacote ENIP
+
+        // Defino o maximo de bytes que vai pode haver na requisição ENIP
+        const maximoBytesENIP = 512;
+
+        // Total em bytes que os serviços de escrita vão ocupar
+        let totalBytesDeServices = 0;
+
+        // --------- Tamanho do cabeçalho ENIP ---------
+        let totalBytesCabecalho = 0;
+        // Pegar o tamanho base em bytes de todo o pacote ENIP 
+        let bufferLayerCIPAtual = layerENIP.criarBuffer();
+        if (!bufferLayerCIPAtual.isSucesso) {
+            retornoEscrita.erro.descricao = `Erro ao gerar o buffer do Layer ENIP para determinar o tamanho base em bytes: ${bufferLayerCIPAtual.erro.descricao}. Trace log: ${bufferLayerCIPAtual.tracer.getHistoricoOrdenado().join(' -> ')}`;
+            return retornoEscrita;
+        }
+
+        // Adicionar os bytes do cabeçalho ENIP
+        totalBytesCabecalho = bufferLayerCIPAtual.sucesso.buffer.length;
+        // ----------------
+
+        // Array que vai armazenar os tags que vão ser enviados em outro ENIP caso ultrapasse o limite de bytes no ENIP atual
+
+        /**
+         * @type {EscritaTag[]}
+         */
+        const tagsParaSepararEmOutroENIP = []
+
+        // Ordenar as tags de escrita por menor tamanho em bytes
+        tagsValidasDeEscrita.sort((a, b) => a.tamanhoServicePacket - b.tamanhoServicePacket);
+        for (const singleServiceEscrita of tagsValidasDeEscrita) {
+
+            // + os bytes totais desse serviço
+            totalBytesDeServices += singleServiceEscrita.tamanhoServicePacket;
+
+            // + 2 bytes do offset do serviço no cabeçalho
+            totalBytesCabecalho += 2
+
+            // Se o total de bytes ultrapassar o maximo permitido, devo adicionar no array que envia outro ENIP com as tags restantes
+            if (totalBytesCabecalho + totalBytesDeServices > maximoBytesENIP) {
+
+                tagsParaSepararEmOutroENIP.push({
+                    tag: singleServiceEscrita.tagObjeto.tag,
+                    dataType: {
+                        isAtomico: singleServiceEscrita.tagObjeto.dataTypeDados.isAtomico,
+                        atomico: {
+                            codigoAtomico: singleServiceEscrita.tagObjeto.dataTypeDados.atomico.codigoAtomico,
+                            valor: singleServiceEscrita.tagObjeto.dataTypeDados.atomico.valor
+                        },
+                        isStruct: singleServiceEscrita.tagObjeto.dataTypeDados.isStruct,
+                        struct: {
+                            codigoStruct: singleServiceEscrita.tagObjeto.dataTypeDados.struct.codigoStruct,
+                            classeStruct: singleServiceEscrita.tagObjeto.dataTypeDados.struct.classeStruct
+                        }
+                    }
+                });
+                continue;
+            }
+
+            // Se ainda não ultrapassou o limite, adicionar o serviço no ENIP atual
+            layerMultipleService.addSingleServicePacket(singleServiceEscrita.servicePacket);
+        }
+
+        // Finalmente após as verificações, enviar o pacote enip com as tags disponiveis
+        const respostaEscritaENIP = await this.getENIPSocket().enviarENIP(layerENIP);
+
+        if (!respostaEscritaENIP.isSucesso) {
+
+            // Erro inicial ao enviar o pacote ENIP. Provavelmente nem chegou a ser enviado ao dispositivo
+            if (!respostaEscritaENIP.enipEnviar.isEnviou) {
+                retornoEscrita.erro.descricao = `Erro ao enviar o pacote ENIP de escrita de tags: ${respostaEscritaENIP.enipEnviar.erro.descricao}}. ${respostaEscritaENIP.enipEnviar.erro.isGerarBuffer ? `Trace Log: ${respostaEscritaENIP.enipEnviar.erro.erroGerarBuffer.traceLog}` : ''}`;
+                return retornoEscrita;
+            }
+
+            // Erro se o pacote ENIP foi enviado, porém não devolveu a resposta
+            if (!respostaEscritaENIP.enipReceber.isRecebeu) {
+                retornoEscrita.erro.descricao = `Erro ao receber a resposta do pacote ENIP de escrita de tags: ${respostaEscritaENIP.enipReceber.erro.descricao}}.`;
+                return retornoEscrita;
+            }
+        }
+
+        // Se chegou aqui, o pacote ENIP foi enviado e recebido com sucesso
+        const ENIPResposta = respostaEscritaENIP.enipReceber.enipParser;
+
+        // Se o pacote ENIP não é um SendRRData, então não é o pacote que espero
+        if (!ENIPResposta.isSendRRData()) {
+            retornoEscrita.erro.descricao = 'O pacote de resposta não é um comando SendRRData';
+            return retornoEscrita;
+        }
+
+        // Informações do comando SendRRData recebido
+        const ENIPSendRRData = ENIPResposta.getAsSendRRData();
+
+        // Validar se o Buffer recebido é valido
+        if (!ENIPSendRRData.isValido().isValido) {
+
+            retornoEscrita.erro.descricao = `O pacote SendRRData não é valido, alguma informação no Buffer está incorreta: ${ENIPSendRRData.isValido().erro.descricao}. Trace log: ${ENIPSendRRData.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
+            return retornoEscrita;
+        }
+
+        // Por enquanto só suporta CIP, então preciso garantir que a resposta usa o serviço CIP
+        if (!ENIPSendRRData.isServicoCIP()) {
+            retornoEscrita.erro.descricao = 'O pacote de resposta não é um serviço CIP';
+            return retornoEscrita;
+        }
+
+        // Obter as informações do serviço CIP, que vai conter as informações de escrituras das tags
+        const ENIPCIP = ENIPSendRRData.getAsServicoCIP();
+
+        // Validar se o CIP é valido
+        if (!ENIPCIP.isValido().isValido) {
+            retornoEscrita.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${ENIPCIP.isValido().erro.descricao}. Trace log: ${ENIPCIP.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
+            return retornoEscrita;
+        }
+
+        // Se o status do CIP for != de sucesso, é necessario analisar o erro, pois alguns são fatais e outros não
+        if (ENIPCIP.getStatusCIP().codigo != CIPGeneralStatusCodes.Success.hex) {
+
+            /**
+             * O erro é somente fatal se impediu completamente todas as operações solicitadas. O cabeçalho de status da erro se pelo menos algum item deu erro, mesmo quando
+             * outros itens deram sucesso, então precisa analisar exatamente o erro ocorrido
+             */
+            let isErroFatal = false;
+
+            switch (ENIPCIP.getStatusCIP().codigo) {
+                // Esse erro só acontece se foi informado alguma tag nos Service Packets que não existe. Não é um erro fatal e não influencia os outros service packets
+                case CIPGeneralStatusCodes.PathSegmentError.hex: {
+                    break;
+                }
+                // Esse erro acontece com algum outro erro em algum Service Packet enviado que não seja o path segment error. Também não é um erro fatal.
+                case CIPGeneralStatusCodes.EmbeddedServiceError.hex: {
+                    break
+                }
+                // Para qualquer outro erro, vou setar como fatal para garantir
+                default: {
+                    retornoEscrita.erro.descricao = `O pacote CIP retornou com o status desconhecido ${ENIPCIP.getStatusCIP().codigo}: ${ENIPCIP.getStatusCIP().descricao} `;
+                    isErroFatal = true;
+                    break;
+                }
+            }
+
+            if (isErroFatal) {
+                return retornoEscrita;
+            }
+        }
+
+        // Validado o status do CIP, obrigatoriamente o retorno precisa ser um serviço Multiple Service Packet com o retorno de status das escritas
+        if (!ENIPCIP.isMultipleServicePacket()) {
+
+            retornoEscrita.erro.descricao = 'O pacote de resposta não contém um Multiple Service Packet';
+            return retornoEscrita;
+        }
+
+        // Obter o Multiple Service Packet que contém as informações das escritas das tags
+        const ENIPMultipleService = ENIPCIP.getAsMultipleServicePacket();
+        if (!ENIPMultipleService.isValido().isValido) {
+            retornoEscrita.erro.descricao = `O pacote Multiple Service Packet não é valido, alguma informação no Buffer está incorreta: ${ENIPMultipleService.isValido().erro.descricao}. Trace log: ${ENIPMultipleService.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
+
+            return retornoEscrita;
+        }
+
+        // Iterar sobre todos os Service Packets retornados na resposta e bater com a sequencia de tags que foram enviadas para identificar
+        // O status de cada uma
+        for (let indexServiceCIP = 0; indexServiceCIP < ENIPMultipleService.getServicesPackets().length; indexServiceCIP++) {
+
+            // Obter o Service Packet atual
+            const CIPPacket = ENIPMultipleService.getServicesPackets()[indexServiceCIP];
+
+            // Obter a solicitação de escrita da tag do array.
+            const tagEscritaSolicitada = tagsValidasDeEscrita[indexServiceCIP];
+
+            // Ambas variaveis devem estar sincronizadas com o array nas mesmas posições, já que foi usado o sort pra ordenar ANTES de enviar os Single Service Packets ao ENIP
+            // Se não estiver em ordem então o universo não faz sentido
+            if (tagEscritaSolicitada == undefined) continue;
+
+            // Validar se o Service Packet é valido
+            if (!CIPPacket.isValido().isValido) {
+
+                tagEscritaSolicitada.tagObjeto.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${CIPPacket.isValido().erro.descricao}`;
+                tagEscritaSolicitada.tagObjeto.erro.isCIPInvalido = true;
+                tagEscritaSolicitada.tagObjeto.erro.CIPInvalido.trace = CIPPacket.isValido().tracer.getHistoricoOrdenado();
+
+                continue;
+            }
+
+            // O CIP é pra conter somente um Single Service Packet com o status da escrita da tag
+            if (!CIPPacket.isSingleServicePacket()) {
+
+                tagEscritaSolicitada.tagObjeto.erro.descricao = `O pacote de resposta não contém um SIngle Service Packet`
+                tagEscritaSolicitada.tagObjeto.erro.isSingleServicePacketNaoRetornado = true;
+
+                continue;
+            }
+
+            // Obter o Single Service Packet que contém o status da escrita da tag
+            const singleServicePacket = CIPPacket.getAsServicoGenericoPacket();
+
+            // Validar se o Single Service Packet é valido
+            if (!singleServicePacket.isValido().isValido) {
+
+                tagEscritaSolicitada.tagObjeto.erro.descricao = `O pacote Single Service Packet não é valido, alguma informação no Buffer está incorreta: ${singleServicePacket.isValido().erro.descricao}`;
+                tagEscritaSolicitada.tagObjeto.erro.isSingleServicePacketInvalido = true;
+                tagEscritaSolicitada.tagObjeto.erro.singleServicePacketInvalido.trace = singleServicePacket.isValido().tracer.getHistoricoOrdenado();
+
+                continue;
+            }
+
+            // Se o Buffer for valido, validar agora o status retornado 
+            if (!singleServicePacket.isStatusSucesso().isSucesso) {
+
+                switch (singleServicePacket.getStatus().codigoStatus) {
+                    // Ainda não sei outros tipos de erros que podem ocorrer, então qualquer status != de sucesso eu trato como erro na escrita
+                    default: {
+
+                        tagEscritaSolicitada.tagObjeto.erro.descricao = `O pacote Single Service Packet retornou um status de erro: ${singleServicePacket.getStatus().codigoStatus} - ${singleServicePacket.getStatus().descricaoStatus}`;
+
+                        tagEscritaSolicitada.tagObjeto.erro.isSingleServicePacketStatusErro = true;
+                        tagEscritaSolicitada.tagObjeto.erro.singleServicePacketStatusInvalido.codigoStatus = singleServicePacket.getStatus().codigoStatus;
+                        tagEscritaSolicitada.tagObjeto.erro.singleServicePacketStatusInvalido.descricaoStatus = singleServicePacket.getStatus().descricaoStatus;
+                        continue;
+                    }
+                }
+            }
+
+            // Se chegou aqui, a escrita da tag foi realizada com sucesso com status de sucesso
+            tagEscritaSolicitada.tagObjeto.isSucesso = true;
+        }
+
+        // ----------------- Verificação de tags que precisam ser enviadas em outro ENIP -----------------
+        // Ok, agora que verifiquei as informações das tags no ENIP atual, verificar se tem tags que precisam ser enviadas em outro ENIP
+        if (tagsParaSepararEmOutroENIP.length > 0) {
+
+            // Isso causará um efeito em cascata para escritas de novas tags se as chamadas subsequentes precisarem dividir as escritas em mais chamados, e ta tudo bem!
+            const retornoEscritaOutroENIP = await this.escreveMultiplasTags(tagsParaSepararEmOutroENIP);
+
+            if (!retornoEscritaOutroENIP.isSucesso) {
+                // Se não deu sucesso, nenhuma das tags foi escrita com sucesso
+
+                // Gravar o erro nas tags separadas
+                for (const tagEscritaErro of tagsParaSepararEmOutroENIP) {
+                    const refOriginalTag = tagsPendenteEscrita.find(t => t.tagObjeto.tag == tagEscritaErro.tag);
+                    if (refOriginalTag == undefined) continue;
+
+                    // Anotar o erro
+                    refOriginalTag.tagObjeto.erro.descricao = `Erro ao solicitar escritura da tag: ${retornoEscritaOutroENIP.erro.descricao}`;
+                    refOriginalTag.tagObjeto.erro.isCIPNaoRetornado = true;
+                }
+            } else {
+
+                // Se a leitura deu certo, atualizar as tags com as informações de escrita recebida
+                for (const tagEscritaSucesso of retornoEscritaOutroENIP.sucesso.tags) {
+
+                    const refOriginalTag = tagsPendenteEscrita.find(t => t.tagObjeto.tag == tagEscritaSucesso.tag);
+                    if (refOriginalTag == undefined) continue;
+
+                    Object.assign(refOriginalTag.tagObjeto, tagEscritaSucesso);
+                }
+            }
+        }
+
+        // -----------------------------------------------------------
+
+        retornoEscrita.isSucesso = true;
+        retornoEscrita.sucesso.tags = tagsPendenteEscrita.map((t) => t.tagObjeto);
+
+        return retornoEscrita;
     }
 
     /**

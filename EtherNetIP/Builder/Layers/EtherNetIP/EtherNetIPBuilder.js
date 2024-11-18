@@ -217,6 +217,10 @@ export class EtherNetIPLayerBuilder {
              * Se sucesso, contém os dados do Buffer
              */
             sucesso: {
+                /**
+                 * Buffer com os bytes do pacote EtherNet/IP
+                 * @type {Buffer}
+                 */
                 buffer: undefined
             },
             erro: {

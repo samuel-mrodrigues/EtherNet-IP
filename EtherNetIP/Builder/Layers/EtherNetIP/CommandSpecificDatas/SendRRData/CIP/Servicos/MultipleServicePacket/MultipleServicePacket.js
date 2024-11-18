@@ -179,7 +179,7 @@ export class MultipleServicePacketServiceBuilder {
             const gerarBuffer = servicoPacket.servico.criarBuffer();
 
             retBuff.tracer.appendTraceLog(gerarBuffer.tracer);
-            
+
             // Se ocorreu algum erro na geração do Buffer, retornar o erro
             if (!gerarBuffer.isSucesso) {
                 retBuff.erro.descricao = `Erro ao gerar o buffer do Single Service Packet ID ${servicoPacket.id} (${servicoPacket.servico.getStringPath()}): ${gerarBuffer.erro.descricao}`;
@@ -281,15 +281,31 @@ export class MultipleServicePacketServiceBuilder {
     }
 
     /**
-     * Adiciona um serviço Packet a lista de serviços que vão ser adicionados ao Multiple Service Packet e retorna ele para customizar.
+     * Retorna um Single Service Packet que não é adicionado ao Multiple Service Packet.
      */
-    addSingleServicePacket() {
+    novoSingleServicePacketTemplate() {
+        return new SingleServicePacketServiceBuilder();
+    }
+
+    /**
+     * Adiciona um serviço Packet a lista de serviços que vão ser adicionados ao Multiple Service Packet e retorna ele para customizar.
+     * @param {SingleServicePacketServiceBuilder} singleServicePacketBuilder -(Opcional) Se fornecido uma classe SingleServicePacketServiceBuilder, ele vai ser adicionado a lista de serviços ao invés de instanciar uma nova
+     */
+    addSingleServicePacket(singleServicePacketBuilder) {
         /**
          * @type {SingleServicePacket}
          */
         const novoSingleService = {
             id: this.#campos.servicesPackets.length,
-            servico: new SingleServicePacketServiceBuilder()
+            servico: undefined
+        }
+
+        if (singleServicePacketBuilder != undefined) {
+            if (!(singleServicePacketBuilder instanceof SingleServicePacketServiceBuilder)) throw new Error('O serviço packet deve ser uma instância de SingleServicePacketServiceBuilder');
+
+            novoSingleService.servico = singleServicePacketBuilder;
+        } else {
+            novoSingleService.servico = new SingleServicePacketServiceBuilder()
         }
 
         this.#campos.servicesPackets.push(novoSingleService);

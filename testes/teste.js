@@ -33,15 +33,35 @@ async function testeSondaTags() {
     console.log(servicoGenerico);
 }
 
-async function testeMultiplasLeituras() {
+async function testeCarai() {
     const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 44818 });
 
     testeCompact.getENIPSocket().toggleAutoReconnect(true)
     await testeCompact.getENIPSocket().conectar();
 
-    let teste = await testeCompact.lerMultiplasTags();
-    console.log(teste);
+    let teste = await testeCompact.escreveMultiplasTags([{
+        tag: 'TESTE2',
+        dataType: {
+            isAtomico: true,
+            atomico: {
+                codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo,
+                valor: 55
+            }
+        }
+    }, {
+        tag: 'TESTE',
+        dataType: {
+            isAtomico: true,
+            atomico: {
+                codigoAtomico: testeCompact.getDataTypes().atomicos.REAL.codigo,
+                valor: 22
+            }
+        }
+    }])
 
+    console.log(teste);
+    
 }
 
-testeMultiplasLeituras();
+testeCarai();
+// testeUmaEscrita();
