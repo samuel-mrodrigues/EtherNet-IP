@@ -1,5 +1,5 @@
 import { hexDeBuffer } from "../EtherNetIP/Utils/Utils.js";
-import { CompactLogixRockwell } from "./ImplementandoClasseCompactLogix.js";
+import { CompactLogixRockwell } from "../Controladores/CompactLogix/CompactLogix.js";
 
 async function testeSondaTags() {
 
@@ -49,19 +49,50 @@ async function testeCarai() {
             }
         }
     }, {
-        tag: 'TESTE',
+        tag: 'TESTECUSCUS',
         dataType: {
             isAtomico: true,
             atomico: {
-                codigoAtomico: testeCompact.getDataTypes().atomicos.REAL.codigo,
+                codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo,
                 valor: 22
             }
         }
     }])
 
     console.log(teste);
+
+}
+
+async function testeEscritaUmaTag() {
+    const testeCompact = new CompactLogixRockwell({ ip: '192.168.3.120', porta: 44818 });
+
+    testeCompact.getENIPSocket().toggleAutoReconnect(true)
+    await testeCompact.getENIPSocket().conectar();
+
+    // let leituraValor = await testeCompact.escreveMultiplasTags([
+    //     {tag: 'BD_D5_MOTIVO_DIA4[2]', dataType: {isAtomico: true, atomico: {codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo, valor: 1}}},
+    //     {tag: 'BD_D5_MOTIVO_DIA4[3]', dataType: {isAtomico: true, atomico: {codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo, valor: 2}}},
+    // ])
+    // console.log(leituraValor);
+    
+    let leituraValor = await testeCompact.lerMultiplasTags(['BD_D5_MOTIVO_DIA4[2]', 'BD_D5_MOTIVO_DIA4[3]', 'TESTE2', 'TESTE[2]', 'BD_D5_MOTIVO_DIA4[44]'])
+    console.log(leituraValor);
+    
+    
+    return;
+
+    let valorAtual = await testeCompact.escreveTag('BD_D5_MOTIVO_DIA4[2]', {
+        isAtomico: true,
+        atomico: {
+            codigoAtomico: testeCompact.getDataTypes().atomicos.DINT.codigo,
+            valor: 55
+        }
+    })
+
+    console.log(valorAtual);
     
 }
 
-testeCarai();
+// testeCarai();
 // testeUmaEscrita();
+testeEscritaUmaTag();

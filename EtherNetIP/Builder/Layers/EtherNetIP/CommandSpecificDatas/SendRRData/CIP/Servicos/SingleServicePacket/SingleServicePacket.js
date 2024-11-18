@@ -18,11 +18,17 @@ export class SingleServicePacketServiceBuilder {
          */
         atributoNome: '',
         /**
+         * Configurar o membro do segmento(para arrays dimensionais)
+         * @type {Buffer}
+         */
+        membroRequestPath: undefined,
+        /**
          * A classe generica permite customizar o comando a ser enviado ao dispositivo
          */
         CIPGenericClass: {
             /**
              * Buffer para appendar ao fim do Request Path para o serviço
+             * @type {Buffer}
              */
             buffer: undefined
         }
@@ -78,10 +84,25 @@ export class SingleServicePacketServiceBuilder {
     }
 
     /**
+     * Setar o Membro do Request Path solicitado.
+     * @param {Buffer} buffer - Buffer do membro do Request Path
+     */
+    setMemberRequestPath(buffer) {
+        if (buffer == undefined) throw new Error('Buffer do membro do Request Path deve ser informado');
+        if (Buffer.isBuffer(buffer) == false) throw new Error('Buffer do membro do Request Path deve ser um Buffer');
+
+        // Obrigatoriamente ser 2 bytes
+        if (buffer.length != 2) throw new Error('Buffer do membro do Request Path deve ser de 2 bytes');
+
+        this.#campos.membroRequestPath = buffer;
+    }
+
+    /**
      * Define o serviço como um Get Attribute
      * @param {Object} propriedades - Propriedades para incluir no Get Attribute
      * @param {String} propriedades.nome - O nome do recurso que vai ser solicitado no dispositivo remoto
      * @param {Buffer} propriedades.CIPGenericBuffer - O buffer do CIP Generic Data que vai ser enviado no Get Attribute
+     * @param {Buffer} propriedades.MemberRequestPath - O buffer do membro do Request Path solicitado (Opcional)
      */
     setAsGetAttribute(propriedades) {
         this.setCodigoServico(SingleServiceCodes.Get.hex);
@@ -94,6 +115,14 @@ export class SingleServicePacketServiceBuilder {
         if (propriedades.CIPGenericBuffer == undefined) throw new Error('O buffer do CIP Generic Data deve ser informado');
         if (Buffer.isBuffer(propriedades.CIPGenericBuffer) == false) throw new Error('O buffer do CIP Generic Data deve ser um Buffer');
 
+        // Se foi informado o Member Request Path, validar se ele corresponde a um buffer de 2 bytes
+        if (propriedades.MemberRequestPath != undefined) {
+            if (Buffer.isBuffer(propriedades.MemberRequestPath) == false) throw new Error('O buffer do Member Request Path deve ser um Buffer');
+            if (propriedades.MemberRequestPath.length != 2) throw new Error('O buffer do Member Request Path deve ser de 2 bytes');
+
+            this.#campos.membroRequestPath = propriedades.MemberRequestPath;
+        }
+
         this.#campos.atributoNome = propriedades.nome;
 
         this.#campos.CIPGenericClass.buffer = propriedades.CIPGenericBuffer;
@@ -104,6 +133,7 @@ export class SingleServicePacketServiceBuilder {
      * @param {Object} propriedades - Propriedades para incluir no Set Attribute
      * @param {String} propriedades.nome - O nome do recurso que vai ser solicitado no dispositivo remoto
      * @param {Buffer} propriedades.CIPGenericBuffer - O buffer do CIP Generic Data que vai ser enviado no Set Attribute
+     * @param {Buffer} propriedades.MemberRequestPath - O buffer do membro do Request Path solicitado (Opcional)
      */
     setAsSetAttribute(propriedades) {
         this.setCodigoServico(SingleServiceCodes.Set.hex);
@@ -116,6 +146,14 @@ export class SingleServicePacketServiceBuilder {
 
         if (propriedades.CIPGenericBuffer == undefined) throw new Error('O buffer do CIP Generic Data deve ser informado');
         if (Buffer.isBuffer(propriedades.CIPGenericBuffer) == false) throw new Error('O buffer do CIP Generic Data deve ser um Buffer');
+
+        // Se foi informado o Member Request Path, validar se ele corresponde a um buffer de 2 bytes
+        if (propriedades.MemberRequestPath != undefined) {
+            if (Buffer.isBuffer(propriedades.MemberRequestPath) == false) throw new Error('O buffer do Member Request Path deve ser um Buffer');
+            if (propriedades.MemberRequestPath.length != 2) throw new Error('O buffer do Member Request Path deve ser de 2 bytes');
+
+            this.#campos.membroRequestPath = propriedades.MemberRequestPath;
+        }
 
         this.#campos.atributoNome = propriedades.nome;
 
@@ -165,21 +203,12 @@ export class SingleServicePacketServiceBuilder {
         // O 1 byte do cabeçalho é o tipo do service
         bufferCabecalho.writeUInt8(this.#campos.codigoServico, 0);
         tracerLogBuff.add(`Setando campo de código de serviço para ${getSingleServiceCode(this.#campos.codigoServico).descricao} (${numeroToHex(this.#campos.codigoServico, 1)}) no offset 0`);
-
-        let tamanhoDoRequestPath = Math.ceil((this.#campos.atributoNome.length + 2) / 2);
-
-        // O 2 byte é o tamanho do Request Path abaixo em words
-        bufferCabecalho.writeUInt8(tamanhoDoRequestPath, 1);
-        tracerLogBuff.add(`Setando campo de tamanho do Request Path para ${tamanhoDoRequestPath} words (${this.#campos.atributoNome}) no offset 1`);
-
         tracerLogBuff.add(`Cabeçalho do serviço Single Service Packet gerado com sucesso: ${hexDeBuffer(bufferCabecalho)}`);
 
         // Alocar um buffer pra caber o +1 byte do data type e o +1 Request Path 
-        let valorParaAlocarBytes = 2 + Buffer.from(this.#campos.atributoNome).length;
-        let isStringImpar = Buffer.from(this.#campos.atributoNome).length % 2 !== 0;
-        if (isStringImpar) valorParaAlocarBytes += 1;  // Se o tamanho da string for ímpar, adicionar um byte de preenchimento
+        let valorParaAlocarBytesRequestPath = 2 + Buffer.from(this.#campos.atributoNome).length;
 
-        const buffRequestPath = Buffer.alloc(valorParaAlocarBytes);
+        let buffRequestPath = Buffer.alloc(valorParaAlocarBytesRequestPath);
 
         tracerLogBuff.add(`Criando o buffer do Request Path de ${buffRequestPath.length} bytes`);
 
@@ -195,7 +224,26 @@ export class SingleServicePacketServiceBuilder {
         Buffer.from(this.#campos.atributoNome).copy(buffRequestPath, 2);
         tracerLogBuff.add(`Setando o campo do Request Path do simbolo solicitado ${hexDeBuffer(Buffer.from(this.#campos.atributoNome))} (${this.#campos.atributoNome}) para o buffer no offset 2`);
 
+        // Se Request Path for impar, preciso adicionr um byte de paddinhg pra deixar par
+        if (buffRequestPath.length % 2 != 0) {
+            buffRequestPath = Buffer.from([...buffRequestPath, 0x00]);
+        }
+
+        // Se foi informado o index do array
+        if (this.#campos.membroRequestPath != undefined) {
+            // Os próximos bytes são o index do Member Request Path(index do array dimensional) se incluso
+
+            buffRequestPath = Buffer.concat([buffRequestPath, this.#campos.membroRequestPath]);
+            tracerLogBuff.add(`Setando o campo Request Path Member ${hexDeBuffer(this.#campos.membroRequestPath)}`);
+        }
+
         tracerLogBuff.add(`Buffer do Request Path gerado com sucesso: ${hexDeBuffer(buffRequestPath)}`);
+
+        let tamanhoDoRequestPath = Math.ceil((buffRequestPath.length) / 2);
+
+        // O 2 byte é o tamanho do Request Path abaixo em words
+        bufferCabecalho.writeUInt8(tamanhoDoRequestPath, 1);
+        tracerLogBuff.add(`Setando campo de tamanho do Request Path para ${tamanhoDoRequestPath} words (${this.#campos.atributoNome}) no offset 1`);
 
         // Dependendo do serviço solicitado, o CIP GenericData contém informações adicionais necessarias para executar alguma operação.
         // Gerlamente pro serviço Get, é só alocado um Buffer vazio 0x0100, e pro Set, é alocado um buffer com informações da tag que vai ser alterada, como o seu tipo, tamanho e novo valor;
@@ -218,14 +266,14 @@ export class SingleServicePacketServiceBuilder {
 
         tracerLogBuff.add(`Buffer do CIP Generic Data gerado com sucesso: ${hexDeBuffer(bufferCIPGenericData)}`);
 
-        const buffFinal = Buffer.concat([bufferCabecalho, buffRequestPath, bufferCIPGenericData]);
+        const bufferFinal = Buffer.concat([bufferCabecalho, buffRequestPath, bufferCIPGenericData]);
 
-        tracerLogBuff.add(`Buffer completo(Cabeçalho + Request Path + CIP Generic Data) gerado com sucesso: ${hexDeBuffer(buffFinal)}`);
+        tracerLogBuff.add(`Buffer completo(Cabeçalho + Request Path + CIP Generic Data) gerado com sucesso: ${hexDeBuffer(bufferFinal)}`);
 
         tracerLogBuff.add(`Builder SingleServicePacket finalizado`);
 
         retBuff.isSucesso = true;
-        retBuff.sucesso.buffer = buffFinal;
+        retBuff.sucesso.buffer = bufferFinal;
         return retBuff;
     }
 

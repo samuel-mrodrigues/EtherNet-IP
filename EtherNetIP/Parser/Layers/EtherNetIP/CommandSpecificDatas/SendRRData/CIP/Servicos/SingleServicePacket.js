@@ -33,6 +33,11 @@ export class SingleServicePacketParser {
          */
         codigoStatus: undefined,
         /**
+         * Opcionalmente, um additional status de 2 bytes pode ser retornado, dependendo do código de status retornado.
+         * @type {Buffer}
+         */
+        additionalStatus: undefined,
+        /**
          * Geralmente, SingleServicePacket retorna um CIP Class Generic, com o Command Specific Data do que foi solicitado.
          * @type {Buffer}
          */
@@ -83,8 +88,15 @@ export class SingleServicePacketParser {
         // Primeiro 1 bytes é o codigo de status
         this.#campos.codigoStatus = buff.readUInt8(0);
 
-        // Próximo 1 byte é o additional status size em WORDS que na maioria pelo que vi sempre é 0
-        // let additionalStatusEmWords = buff.readUInt8(1);
+        // Próximo 1 byte é o additional status size em WORDS
+        let additionalStatusEmWords = buff.readUInt8(1);
+
+        // Se o tamanho em Words do Additional Status for maior que 0, então tem mais dados depois do status
+        if (additionalStatusEmWords > 0) {
+            let additionalStatusBuffer = buff.subarray(2, 4);
+
+            this.#campos.additionalStatus = additionalStatusBuffer;
+        }
 
         // Validar se o status devolvido é valido
         let getStatusSinglePacket = getStatusCode(this.#campos.codigoStatus);
@@ -178,6 +190,12 @@ export class SingleServicePacketParser {
              * Código de status do serviço solicitado
              */
             codigoStatus: this.#campos.codigoStatus,
+            /**
+             * O additional status code de 2 bytes, que pode ser undefined ou não dependendo do código de status
+             */
+            additionalStatusCode: {
+                buffer: this.#campos.additionalStatus,
+            },
             /**
              * Descrição do código de status do serviço solicitado
              */

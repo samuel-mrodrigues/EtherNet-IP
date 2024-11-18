@@ -317,5 +317,14 @@ export const CIPGeneralStatusCodes = {
     UnknownModbusError: {
         hex: 0x2B,
         descricao: 'Unknown Modbus Error'
+    },
+    /**
+     * Manual CIP: This range of error codes is to be used to indicate Object Class specific errors. Use of
+this range should only be performed when none of the Error Codes presented in this
+table accurately reflect the error that was encountered. 
+     */
+    ErroCustomizado: {
+        hex: 0xff,
+        descricao: 'Specific Object Class Error'
     }
 };
