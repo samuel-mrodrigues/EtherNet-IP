@@ -154,6 +154,8 @@ export class CompactLogixRockwell {
      * @param {Object} parametros
      * @param {String} parametros.ip - Endereço IP do controlador CompactLogix
      * @param {Number} parametros.porta - Porta de comunicação com o controlador CompactLogix
+     * @param {Boolean} parametros.habilitaLogsEtherNetIP - Se os logs do gerenciador de EtherNetIP devem ser mostrados
+     * @param {Boolean} parametros.habilitarLogsCompactLogix - Se os logs desse CompactLogix devem ser mostrados
      */
     constructor(parametros) {
         if (parametros == undefined || typeof parametros != 'object') throw new Error('Parâmetros de conexão não informados');
@@ -163,8 +165,17 @@ export class CompactLogixRockwell {
         this.#configuracao.ip = parametros.ip;
         this.#configuracao.porta = parametros.porta;
 
+        let isHabilitaLogsEtherNet = false;
+        let isHabilitaLogsCompactLogix = false;
+        if (parametros != undefined) {
+            if (parametros.habilitaLogsEtherNetIP) isHabilitaLogsEtherNet = true;
+            if (parametros.habilitarLogsCompactLogix) isHabilitaLogsCompactLogix = true;
+        }
+
+        this.#configuracao.logs.habilitarLogsConsole = isHabilitaLogsCompactLogix;
+
         this.#ENIPSocket = new EtherNetIPSocket({
-            isHabilitaLogs: true,
+            isHabilitaLogs: isHabilitaLogsEtherNet,
             conexao: {
                 ip: this.#configuracao.ip,
                 porta: this.#configuracao.porta
@@ -397,6 +408,10 @@ export class CompactLogixRockwell {
                      * A tag não existe
                      */
                     isTagNaoExiste: false,
+                    /**
+                     * A tag existe, porém foi solicitado um index que não existe no controlador
+                     */
+                    isIndexArrayNaoExiste: false
                 },
                 /**
                  * Se o erro foi causado devido a um erro de conversão do Buffer recebido no ENIP para o valor real(numero, string, array, etc..)
@@ -565,6 +580,11 @@ export class CompactLogixRockwell {
                     retornoTag.erro.statusInvalido.isTagNaoExiste = true;
                     break;
                 }
+                case CIPGeneralStatusCodes.PathDestinationUnknown.hex: {
+                    retornoTag.erro.descricao = 'A tag existe, porém o index de array solicitado não existe.';
+                    retornoTag.erro.statusInvalido.isIndexArrayNaoExiste = true;
+                    break;
+                }
                 // Para qualquer outro erro
                 default: {
                     retornoTag.erro.descricao = `O pacote Single Service Packet retornou um status de erro: ${ENIPSingleService.getStatus().codigoStatus} - ${ENIPSingleService.getStatus().descricaoStatus} `;
@@ -613,7 +633,7 @@ export class CompactLogixRockwell {
             retornoTag.sucesso.tag.struct.dataTypeStruct = converteBufferPraValor.conversao.struct.dataType;
 
             // Analisar o tipo da Struct e devolver corretamente no retorno
-            if (converteBufferPraValor.conversao.struct.structData.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
+            if (converteBufferPraValor.conversao.struct.dataType.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
 
                 /**
                  * @type {DataTypeTagStructASCIIString82}
@@ -889,6 +909,8 @@ export class CompactLogixRockwell {
          * @property {Object} erro.singleServicePacketStatusErro - Se isSingleServicePacketStatusErro, contém o motivo do erro de status
          * @property {Number} erro.singleServicePacketStatusErro.codigo - O código de status retornado
          * @property {String} erro.singleServicePacketStatusErro.descricao - A descrição do status retornado 
+         * @property {Boolean} erro.singleServicePacketStatusErro.isTagNaoExiste - Se o status retornado foi de Path Segment Error, significa que a tag não existe
+         * @property {Boolean} erro.singleServicePacketStatusErro.isIndexArrayNaoExiste - Se o status retornado foi de Path Destination Unknown, significa que a tag existe, porém o index do array solicitado não existe
          */
 
         /**
@@ -898,6 +920,10 @@ export class CompactLogixRockwell {
 
         // Iterar sobre as tags solicitadas para verificar se todas foram retornadas na resposta ENIP. Essa ordem do array deve ser exatamente como foi enviada no pacote ENIP
         for (const tag of tagsEmSequencia) {
+
+            /**
+             * @type {TagLidaMultipla}
+             */
             let novoObjData = {
                 tag: tag,
                 isSucesso: false,
@@ -929,7 +955,9 @@ export class CompactLogixRockwell {
                     isSingleServicePacketStatusErro: false,
                     singleServicePacketStatusErro: {
                         codigo: undefined,
-                        descricao: ''
+                        descricao: '',
+                        isIndexArrayNaoExiste: false,
+                        isTagNaoExiste: false
                     }
                 }
             }
@@ -994,6 +1022,10 @@ export class CompactLogixRockwell {
             // Se o buffer é valido, validar o status retornado do service packet
             if (!singleServicePacket.isStatusSucesso().isSucesso) {
 
+                possivelTagSolicitada.erro.isSingleServicePacketStatusErro = true;
+                possivelTagSolicitada.erro.singleServicePacketStatusErro.codigo = singleServicePacket.getStatus().codigoStatus;
+                possivelTagSolicitada.erro.singleServicePacketStatusErro.descricao = singleServicePacket.getStatus().descricaoStatus;
+
                 // Foi retornado algum erro pra esse service packet, validar o tipo do erro
                 switch (singleServicePacket.getStatus().codigoStatus) {
                     // Se for um partial transfer, preciso colocar essa tag pra ler de novo pois não coube na requisição a leitura dela
@@ -1001,12 +1033,18 @@ export class CompactLogixRockwell {
                         tagsPartialTransfer.push(possivelTagSolicitada.tag);
                         continue;
                     }
+                    case CIPGeneralStatusCodes.PathSegmentError.hex: {
+                        possivelTagSolicitada.erro.descricao = 'A tag não existe.';
+                        possivelTagSolicitada.erro.singleServicePacketStatusErro.isTagNaoExiste = true;
+                        continue;
+                    }
+                    case CIPGeneralStatusCodes.PathDestinationUnknown.hex: {
+                        possivelTagSolicitada.erro.descricao = 'A tag existe, porém o index de array solicitado não existe.';
+                        possivelTagSolicitada.erro.singleServicePacketStatusErro.isIndexArrayNaoExiste = true;
+                        continue;
+                    }
                     default: {
                         possivelTagSolicitada.erro.descricao = `O pacote Single Service Packet retornou um status de erro: ${singleServicePacket.getStatus().descricaoStatus}`;
-
-                        possivelTagSolicitada.erro.isSingleServicePacketStatusErro = true;
-                        possivelTagSolicitada.erro.singleServicePacketStatusErro.codigo = singleServicePacket.getStatus().codigoStatus;
-                        possivelTagSolicitada.erro.singleServicePacketStatusErro.descricao = singleServicePacket.getStatus().descricaoStatus;
                         continue;
                     }
                 }
@@ -1123,6 +1161,9 @@ export class CompactLogixRockwell {
      * Realizar a escrita de uma unica tag do CompactLogix
      * @param {String} tag - Tag a ser escrita
      * @param {Object} dataType - Data Type da tag para escrever
+     * @param {Boolean} dataType.isResolverAutomaticamente - Se deve resolver automaticamente o tipo de Data Type da tag
+     * @param {Object} dataType.resolverAutomaticamente - Se isResolverAutomaticamente for true, contém os detalhes para resolver automaticamente o tipo de Data Type da tag
+     * @param {Number} dataType.resolverAutomaticamente.valor - Valor a ser escrito para resolver automaticamente o tipo de Data Type
      * @param {Boolean} dataType.isAtomico - Se o Data Type é atomico ou não
      * @param {Object} dataType.atomico - Se atomico, contém os detalhes do valor a ser escrito
      * @param {Number} dataType.atomico.codigoAtomico - Código do tipo de Data Type a ser escrito
@@ -1133,10 +1174,6 @@ export class CompactLogixRockwell {
      * @param {EscreveTagStructASCIIString82} dataType.struct.classeStruct - Classe da Struct a ser escrita(ASCIIString82, Timer, etc..)
      */
     async escreveTag(tag, dataType) {
-        /**
-         * @typedef EscritaTagStructASCIIString82
-         * @property {String} valor - O valor que foi gravado
-         */
 
         if (tag == undefined) throw new Error('Tag a ser escrita não informada');
         if (typeof tag != 'string') throw new Error('Tag a ser escrita deve ser uma string');
@@ -1204,7 +1241,7 @@ export class CompactLogixRockwell {
                         dataTypeStruct: undefined,
                         /**
                          * O valor da Struct escrito. Esse campo é dinamico depenendo do tipo da Struct
-                         * @type {EscritaTagStructASCIIString82}
+                         * @type {EscreveTagStructASCIIString82}
                          */
                         valor: undefined
                     }
@@ -1259,6 +1296,10 @@ export class CompactLogixRockwell {
                  * Se o erro foi causado devido a um erro de status, ou seja os layers estão todos em conformidade, porém o dispositivo retornou um status diferente de sucesso para a operação de leitura da tag
                  */
                 isStatusInvalido: false,
+                /**
+                 * Se o erro ocorrido foi devido a tentativa de busca do Data Type de forma automatica
+                 */
+                isObterDataTypeAutomatico: false,
                 /**
                  * Se isStatusInvalido, contém os detalhes do status invalido
                  */
@@ -1349,6 +1390,61 @@ export class CompactLogixRockwell {
 
         // O Single Service Packet eu configuro a tag solicitada e o valor a ser escrito
         const layerServicePacket = layerConnectionManager.getCIPMessage().buildSingleServicePacket();
+
+        // Se o Data Type da tag a ser escrita é para ser resolvido automaticamente
+        if (dataType.isResolverAutomaticamente) {
+
+            const solicitaLeituraTag = await this.lerTag(tag);
+            if (!solicitaLeituraTag.isSucesso) {
+
+                retornoEscrita.erro.descricao = `Erro ao tentar resolver automaticamente o Data Type da tag ${tag}: ${solicitaLeituraTag.erro.descricao}`;
+                retornoEscrita.erro.isObterDataTypeAutomatico = true;
+                return retornoEscrita;
+            }
+
+            // Se resolveu, validar o tipo retornado e salvar no data type
+
+            if (solicitaLeituraTag.sucesso.tag.isAtomico) {
+
+                dataType.isAtomico = true;
+                dataType.atomico = {
+                    codigoAtomico: solicitaLeituraTag.sucesso.tag.atomico.dataType.codigo,
+                    valor: dataType.resolverAutomaticamente.valor
+                }
+            } else if (solicitaLeituraTag.sucesso.tag.isStruct) {
+
+                switch (solicitaLeituraTag.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct) {
+                    case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                        dataType.isStruct = true;
+                        dataType.struct = {
+                            classeStruct: undefined,
+                            codigoStruct: undefined
+                        }
+
+                        dataType.struct.codigoStruct = this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct;
+
+                        /**
+                         * @type {EscreveTagStructASCIIString82}
+                         */
+                        let classeStructASCII = {
+                            string: dataType.resolverAutomaticamente.valor
+                        }
+                        dataType.struct.classeStruct = classeStructASCII;
+                        break;
+                    }
+                    default: {
+
+                        retornoEscrita.erro.descricao = ` O Data Type retornado é um Struct porém o tipo dele (${solicitaLeituraTag.sucesso.tag.struct.dataTypeStruct.codigo}) não suportado.`;
+                        retornoEscrita.erro.isObterDataTypeAutomatico = true;
+                    }
+                }
+            } else {
+
+                retornoEscrita.erro.descricao = `O Data Type retornado não é atomico nem um Struct.`;
+                retornoEscrita.erro.isObterDataTypeAutomatico = true;
+                return retornoEscrita;
+            }
+        }
 
         /**
          * O Buffer onde vou armazenar a operação de escrita pro CIP Generic Class
@@ -1505,10 +1601,10 @@ export class CompactLogixRockwell {
                     bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferString]);
 
                     /**
-                     * @type {EscritaTagStructASCIIString82}
+                     * @type {EscreveTagStructASCIIString82}
                      */
                     const retornoEscritaStructASCIIString82 = {
-                        valor: stringPraEscrever
+                        string: stringPraEscrever
                     }
 
                     retornoEscrita.sucesso.tag.isStruct = true;
@@ -1744,6 +1840,9 @@ export class CompactLogixRockwell {
      * @typedef EscritaTag
      * @property {String} tag - Nome da tag para escrever
      * @property {Object} dataType - O Data Type da tag a ser escrita
+     * @property {Boolean} dataType.isResolverAutomaticamente - Se true, será feito uma tentativa de resolver o Data Type automaticamente solicitando ao CompactLogix os dados da tag.
+     * @property {Object} dataType.resolverAutomaticamente - Se isResolverAutomaticamente, informe os detalhes da escrita da tag
+     * @property {*} dataType.resolverAutomaticamente.valor - O valor a ser escrito que seja compatível com o tipo da tag.
      * @property {Boolean} dataType.isAtomico - Se o Data Type é atomico(numeros)
      * @property {Object} dataType.atomico - Se atomico, contém os detalhes do valor a ser escrito
      * @property {Number} dataType.atomico.codigoAtomico - Código do tipo de Data Type a ser escrito
@@ -1763,11 +1862,6 @@ export class CompactLogixRockwell {
         if (!Array.isArray(tags)) throw new Error('As tags informadas não são um array');
         if (tags.length == 0) throw new Error('Nenhuma tag informada para escrever');
 
-        /**
-         * Detalhes do Data Type Struct ASCII String 82
-         * @typedef DetalheTagStructASCIIString82
-         * @property {String} valor - String para ser escrita
-         */
 
         /**
          * @typedef RetornoTagEscritaMultipla
@@ -1781,10 +1875,11 @@ export class CompactLogixRockwell {
          * @property {Boolean} dataTypeDados.isStruct - Se o Data Type é do tipo Struct
          * @property {Object} dataTypeDados.struct - Se isStruct, contém os detalhes do Data Type Struct
          * @property {Number} dataTypeDados.struct.codigoStruct - Código do tipo de Data Type Struct a ser escrito
-         * @property {DetalheTagStructASCIIString82} dataTypeDados.struct.classeStruct - Se isStruct, contém a classe da Struct a ser escrita
+         * @property {EscreveTagStructASCIIString82} dataTypeDados.struct.classeStruct - Se isStruct, contém a classe da Struct a ser escrita
          * @property {Boolean} isSucesso - Se a escrita foi realizada com sucesso no dispositivo
          * @property {Object} erro - Se não isSucesso, contém os detalhes do erro ocorrido
          * @property {String} erro.descricao - Descrição generica do erro ocorrido
+         * @property {Boolean} erro.isIdentificarDataTypeAutomatico - Se o erro ocorrido foi devido a falha ao tentar identificar automaticamente o Data Type da tag
          * @property {Boolean} erro.isDataTypeInvalido - Se o Data Type informado contém informações incorretas(tipo errado, não existe, valores incorretos para tipos especificos)
          * @property {Boolean} erro.isErroGerarBuffer - Se ocorreu um erro ao gerar o Buffer do SingleServicePacket para escrita da tag
          * @property {Boolean} erro.isCIPNaoRetornado - Se o pacote de resposta não retornou um CIP Packet pra essa tag
@@ -1836,6 +1931,12 @@ export class CompactLogixRockwell {
          * @property {RetornoTagEscritaMultipla} tagObjeto - Objeto tag com suas informações
          * @property {SingleServicePacketServiceBuilder} servicePacket - Builder do Service Packet da tag
          * @property {Number} tamanhoServicePacket - Tamanho em bytes que o serviço packet ocupara
+         * @property {Boolean} isIdentificaDataTypeAutomatico - Se o Data Type foi definido pra ser automaticamente identificado
+         * @property {Object} identificaDataTypeAutomatico - Se isIdentificaDataTypeAutomatico, contém detalhes da identificação realizada
+         * @property {*} identificaDataTypeAutomatico.valor - Valor original que foi informado para ser atribuido na tag identificada
+         * @property {Boolean} identificaDataTypeAutomatico.isSucesso - Se a identificação do Data Type foi bem sucedida e o Data Type foi retornado
+         * @property {Object} identificaDataTypeAutomatico.erro - Se não deu pra identificar o Data Type, contém o motivo do erro
+         * @property {String} identificaDataTypeAutomatico.erro.descricao - Descrição do erro que ocorreu durante a verificação do Data Type
          */
 
         /**
@@ -1844,9 +1945,8 @@ export class CompactLogixRockwell {
          */
         const tagsPendenteEscrita = []
 
-        // Realizar a verificação de todas as tags solicitadas
+        // Primeiro analiso todas as tags que vou precisar escrever e organizo elas no array
         for (const tag of tags) {
-
             // Se a tag já foi adicionado, não permito adicionar novamente
             if (tagsPendenteEscrita.find(t => t.tagObjeto.tag == tag.tag) != undefined) continue;
 
@@ -1860,7 +1960,7 @@ export class CompactLogixRockwell {
                 servicePacket: layerSingleService,
                 tamanhoServicePacket: 0,
                 tagObjeto: {
-                    tag: tag,
+                    tag: tag.tag,
                     dataTypeDados: {
                         isValido: false,
                         isAtomico: false,
@@ -1899,31 +1999,163 @@ export class CompactLogixRockwell {
                             additionalStatusBuffer: undefined
                         }
                     }
+                },
+                isIdentificaDataTypeAutomatico: false
+            }
+
+            if (tag.dataType == undefined) {
+                throw new Error(`Data Type da tag ${tag.tag} não informado`);
+            }
+
+            // Marcar se vai ser resolvido o Data Type automatico da tag
+            if (tag.dataType.isResolverAutomaticamente) {
+                if (tag.dataType.resolverAutomaticamente.valor == undefined) {
+                    throw new Error(`Uma tag setada como identificação automatica obrigatoriamente deve ter seu valor definido!`);
                 }
+
+                novoObjTag.isIdentificaDataTypeAutomatico = true;
+                novoObjTag.identificaDataTypeAutomatico = {
+                    valor: tag.dataType.resolverAutomaticamente.valor,
+                    isSucesso: false,
+                    erro: {
+                        descricao: ''
+                    }
+                }
+            } else {
+                // Se não é resolvido automaticamente, o usuario deve ter informado o Data Type
+
+                // Essas informações o usuario pode colocar o que quiser, porém mais a frente é validado todos os tipos informados.
+                if (tag.dataType.isAtomico) {
+                    if (tag.dataType.atomico == undefined) {
+                        throw new Error(`Data Type atomico da tag ${tag.tag} não informado`);
+                    }
+
+                    if (tag.dataType.atomico.codigoAtomico == undefined) {
+                        throw new Error(`Código do Data Type atomico da tag ${tag.tag} não informado`);
+                    }
+
+                    if (tag.dataType.atomico.valor == undefined) {
+                        throw new Error(`Valor do Data Type atomico da tag ${tag.tag} não informado`);
+                    }
+
+                    novoObjTag.tagObjeto.dataTypeDados.isAtomico = true;
+                    novoObjTag.tagObjeto.dataTypeDados.atomico.codigoAtomico = tag.dataType.atomico.codigoAtomico;
+                    novoObjTag.tagObjeto.dataTypeDados.atomico.valor = tag.dataType.atomico.valor;
+                } else if (tag.dataType.isStruct) {
+                    if (tag.dataType.struct == undefined) {
+                        throw new Error(`Data Type Struct da tag ${tag.tag} não informado`);
+                    }
+
+                    if (tag.dataType.struct.codigoStruct == undefined) {
+                        throw new Error(`Código do Data Type Struct da tag ${tag.tag} não informado`);
+                    }
+
+                    if (tag.dataType.struct.classeStruct == undefined) {
+                        throw new Error(`Classe do Data Type Struct da tag ${tag.tag} não informado`);
+                    }
+
+                    novoObjTag.tagObjeto.dataTypeDados.isStruct = true;
+                    novoObjTag.tagObjeto.dataTypeDados.struct.codigoStruct = tag.dataType.struct.codigoStruct;
+                    novoObjTag.tagObjeto.dataTypeDados.struct.classeStruct = tag.dataType.struct.classeStruct;
+                } else {
+                    throw new Error(`Data Type da tag ${tag.tag} não é atomico nem Struct`);
+                }
+
             }
 
             tagsPendenteEscrita.push(novoObjTag);
+        }
+
+        // Verificar se existem tags definidas para identificar automaticamente o Data Type
+        const tagsIdentificarAutomatico = tagsPendenteEscrita.filter(t => t.isIdentificaDataTypeAutomatico);
+        if (tagsIdentificarAutomatico.length > 0) {
+
+            // Enviar uma solicitação ENIP pra ler as tags com identificações automaticas
+            let solicitarLeituraTags = await this.lerMultiplasTags(tagsIdentificarAutomatico.map(t => t.tagObjeto.tag));
+            if (solicitarLeituraTags.isSucesso) {
+
+                // Salvar as informações de cada tag lida
+                solicitarLeituraTags.sucesso.tags.forEach(tagLida => {
+
+                    // Pegar o PreVerificaTag que contém os dados da tag
+                    const tagSetarDataType = tagsIdentificarAutomatico.find(t => t.tagObjeto.tag == tagLida.tag);
+                    if (tagSetarDataType == undefined) return;
+
+                    // Ocorreu um erro ao ler essa tag, anexar o motivo do erro na tag
+                    if (!tagLida.isSucesso) {
+                        tagSetarDataType.identificaDataTypeAutomatico.erro.descricao = tagLida.erro.descricao;
+                        return;
+                    }
+
+                    // Beleza, se leu com sucesso, agora eu tenho o Data Type da tag. Vou salvar ele na tag
+                    if (tagLida.sucesso.isAtomico) {
+                        tagSetarDataType.identificaDataTypeAutomatico.isSucesso = true;
+                        tagSetarDataType.tagObjeto.dataTypeDados.isAtomico = true;
+                        tagSetarDataType.tagObjeto.dataTypeDados.atomico = {
+                            codigoAtomico: tagLida.sucesso.atomico.dataType.codigo,
+                            valor: tagSetarDataType.identificaDataTypeAutomatico.valor
+                        }
+                    } else if (tagLida.sucesso.isStruct) {
+
+                        switch (tagLida.sucesso.struct.dataTypeStruct.codigoTipoStruct) {
+                            case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+
+                                tagSetarDataType.identificaDataTypeAutomatico.isSucesso = true;
+                                tagSetarDataType.tagObjeto.dataTypeDados.isStruct = true;
+
+                                /**
+                                 * Classe Struct do ASCIIStr82
+                                 * @type {EscreveTagStructASCIIString82}
+                                 */
+                                let structASCIIStr82 = {
+                                    string: tagSetarDataType.identificaDataTypeAutomatico.valor
+                                }
+
+                                tagSetarDataType.tagObjeto.dataTypeDados.struct = {
+                                    codigoStruct: tagLida.sucesso.struct.dataTypeStruct.codigoTipoStruct,
+                                    classeStruct: structASCIIStr82
+                                }
+                                break;
+                            }
+                            default: {
+
+                                tagSetarDataType.identificaDataTypeAutomatico.erro.descricao = `Tipo de Struct informado não existe ou não é suportado ainda: ${tagLida.sucesso.struct.dataTypeStruct.codigoTipoStruct}`;
+                                break;
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Se deu erro em buscar, eu salvo em todas as tags o motivo do erro
+
+                tagsIdentificarAutomatico.forEach(t => {
+                    t.identificaDataTypeAutomatico.erro.descricao = solicitarLeituraTags.erro.descricao;
+                })
+            }
+        }
+
+        // Agora que todas as tags estão com seus Data Types confirmados, verificar se eles são validos para prosseguir com o envio do ENIP.
+        for (const tagParaEscrita of tagsPendenteEscrita) {
 
             // Preciso verificar cada tag e configurar o Single Service Packet com as informações da tag
-
-            if (tag.dataType.isAtomico) {
+            if (tagParaEscrita.tagObjeto.dataTypeDados.isAtomico) {
 
                 // Validar o tipo atomico informado
-                const detalhesDataType = this.getDataTypeAtomico(tag.dataType.atomico.codigoAtomico);
+                const detalhesDataType = this.getDataTypeAtomico(tagParaEscrita.tagObjeto.dataTypeDados.atomico.codigoAtomico);
                 if (detalhesDataType == undefined) {
-                    novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
-                    novoObjTag.tagObjeto.erro.descricao = `Data Type atomico informado não existe: ${tag.dataType.atomico.codigoAtomico}`;
+                    tagParaEscrita.tagObjeto.erro.isDataTypeInvalido = true;
+                    tagParaEscrita.tagObjeto.erro.descricao = `Data Type atomico informado não existe: ${tagParaEscrita.tagObjeto.dataTypeDados.atomico.codigoAtomico}`;
                     continue;
                 }
 
                 // Como é um tipo atomico, verificar se o valor informado é um numero
-                if (isNaN(tag.dataType.atomico.valor)) {
-                    novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
-                    novoObjTag.tagObjeto.erro.descricao = `O valor informado (${tag.dataType.atomico.valor}) não é um compatível para o Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}).`;
+                if (isNaN(tagParaEscrita.tagObjeto.dataTypeDados.atomico.valor)) {
+                    tagParaEscrita.tagObjeto.erro.isDataTypeInvalido = true;
+                    tagParaEscrita.tagObjeto.erro.descricao = `O valor informado (${tagParaEscrita.tagObjeto.dataTypeDados.atomico.valor}) não é um compatível para o Data Type atomico (${detalhesDataType.codigo} - ${detalhesDataType.descricao}).`;
                     continue;
                 }
 
-                const numeroParaEscrita = tag.dataType.atomico.valor;
+                const numeroParaEscrita = tagParaEscrita.tagObjeto.dataTypeDados.atomico.valor;
 
                 // Validar se o valor informado vai caber no data type informado
 
@@ -1991,51 +2223,51 @@ export class CompactLogixRockwell {
                 const bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferValor]);
 
                 // Validar se o usuario informou uma tag de array dimensinal (verificar se existe o [] e o index dentro)
-                let isArrayIndex = tag.tag.match(/\[\d+\]/g);
+                let isArrayIndex = tagParaEscrita.tagObjeto.tag.match(/\[\d+\]/g);
 
                 // Se contiver o index do numero
                 if (isArrayIndex) {
 
                     // Cortar somente o nome da tag sem os []
-                    let nomeTagCortadad = tag.tag.split('[')[0];
+                    let nomeTagCortadad = tagParaEscrita.tagObjeto.tag.split('[')[0];
                     let indexSolicitado = parseInt(isArrayIndex[0].replace('[', '').replace(']', ''));
 
                     // Para leituras de tags que correspondem a localização de um array, devo incluir o Member Request Path que inclua qual o membro(index do array no CompactLogix)
-                    layerSingleService.setAsSetAttribute({
+                    tagParaEscrita.servicePacket.setAsSetAttribute({
                         nome: `${nomeTagCortadad}`,
                         CIPGenericBuffer: bufferDataTypeEscrita,
                         MemberRequestPath: Buffer.from([0x28, indexSolicitado])
                     })
                 } else {
                     // Pra ler uma tag pelo menos no CompactLogix, o CIP Generic data deve ser só o Request Path pra string da tag, e o CIP Class Generic é só um array vazio já que não precisa enviar informações
-                    layerSingleService.setAsSetAttribute({
-                        nome: `${tag.tag}`,
+                    tagParaEscrita.servicePacket.setAsSetAttribute({
+                        nome: `${tagParaEscrita.tagObjeto.tag}`,
                         CIPGenericBuffer: bufferDataTypeEscrita
                     })
                 }
 
                 // Definir como valido para enviar nas requisições
-                novoObjTag.isValidoParaEnviar = true;
+                tagParaEscrita.isValidoParaEnviar = true;
 
                 // Salvar também as informações do data type
-                novoObjTag.tagObjeto.dataTypeDados.isValido = true;
-                novoObjTag.tagObjeto.dataTypeDados.isAtomico = true;
-                novoObjTag.tagObjeto.dataTypeDados.atomico.codigoAtomico = detalhesDataType.codigo;
-                novoObjTag.tagObjeto.dataTypeDados.atomico.valor = numeroParaEscrita;
+                tagParaEscrita.tagObjeto.dataTypeDados.isValido = true;
+                tagParaEscrita.tagObjeto.dataTypeDados.isAtomico = true;
+                tagParaEscrita.tagObjeto.dataTypeDados.atomico.codigoAtomico = detalhesDataType.codigo;
+                tagParaEscrita.tagObjeto.dataTypeDados.atomico.valor = numeroParaEscrita;
 
-            } else if (tag.dataType.isStruct) {
+            } else if (tagParaEscrita.tagObjeto.dataTypeDados.isStruct) {
 
                 // Se o Struct informado é uma String ASCII 82
-                switch (tag.dataType.struct.codigoStruct) {
+                switch (tagParaEscrita.tagObjeto.dataTypeDados.struct.codigoStruct) {
                     case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
 
                         /**
                          * @type {EscreveTagStructASCIIString82}
                          */
-                        const classeStructASCIIString82 = tag.dataType.struct.classeStruct;
+                        const classeStructASCIIString82 = tagParaEscrita.tagObjeto.dataTypeDados.struct.classeStruct;
                         if (classeStructASCIIString82.string == undefined) {
-                            novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
-                            novoObjTag.tagObjeto.erro.descricao = 'O Data Type Struct informado é uma String ASCII 82, porém a string a ser escrita não foi informada';
+                            tagParaEscrita.tagObjeto.erro.isDataTypeInvalido = true;
+                            tagParaEscrita.tagObjeto.erro.descricao = 'O Data Type Struct informado é uma String ASCII 82, porém a string a ser escrita não foi informada';
                             continue;
                         }
 
@@ -2076,74 +2308,82 @@ export class CompactLogixRockwell {
                         const bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferString]);
 
                         // Validar se o usuario informou uma tag de array dimensinal (verificar se existe o [] e o index dentro)
-                        let isArrayIndex = tag.tag.match(/\[\d+\]/g);
+                        let isArrayIndex = tagParaEscrita.tagObjeto.tag.match(/\[\d+\]/g);
 
                         // Se contiver o index do numero
                         if (isArrayIndex) {
 
                             // Cortar somente o nome da tag sem os []
-                            let nomeTagCortadad = tag.tag.split('[')[0];
+                            let nomeTagCortadad = tagParaEscrita.tagObjeto.tag.split('[')[0];
                             let indexSolicitado = parseInt(isArrayIndex[0].replace('[', '').replace(']', ''));
 
                             // Para leituras de tags que correspondem a localização de um array, devo incluir o Member Request Path que inclua qual o membro(index do array no CompactLogix)
-                            layerSingleService.setAsSetAttribute({
+                            tagParaEscrita.servicePacket.setAsSetAttribute({
                                 nome: `${nomeTagCortadad}`,
                                 CIPGenericBuffer: bufferDataTypeEscrita,
                                 MemberRequestPath: Buffer.from([0x28, indexSolicitado])
                             })
                         } else {
                             // Pra ler uma tag pelo menos no CompactLogix, o CIP Generic data deve ser só o Request Path pra string da tag, e o CIP Class Generic é só um array vazio já que não precisa enviar informações
-                            layerSingleService.setAsSetAttribute({
-                                nome: `${tag.tag}`,
+                            tagParaEscrita.servicePacket.setAsSetAttribute({
+                                nome: `${tagParaEscrita.tagObjeto.tag}`,
                                 CIPGenericBuffer: bufferDataTypeEscrita
                             })
                         }
 
                         /**
-                         * @type {DetalheTagStructASCIIString82}
+                         * @type {EscreveTagStructASCIIString82}
                          */
                         const retornoEscritaStructASCIIString82 = {
-                            valor: stringParaEscrever
+                            string: stringParaEscrever
                         }
 
                         // Setar como validado para enviar no ENIP
-                        novoObjTag.isValidoParaEnviar = true;
+                        tagParaEscrita.isValidoParaEnviar = true;
 
                         // Setar as informações do data type da tag
-                        novoObjTag.tagObjeto.dataTypeDados.isValido = true;
+                        tagParaEscrita.tagObjeto.dataTypeDados.isValido = true;
 
-                        novoObjTag.tagObjeto.dataTypeDados.isStruct = true;
-                        novoObjTag.tagObjeto.dataTypeDados.struct = {
+                        tagParaEscrita.tagObjeto.dataTypeDados.isStruct = true;
+                        tagParaEscrita.tagObjeto.dataTypeDados.struct = {
                             classeStruct: retornoEscritaStructASCIIString82,
                             codigoStruct: this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct
                         }
                         break;
                     }
                     default: {
-                        novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
-                        novoObjTag.tagObjeto.erro.descricao = `Tipo de Struct informada '${tag.dataType.struct.codigoStruct}' não existe ou não é suportado ainda.`;
+                        tagParaEscrita.tagObjeto.erro.isDataTypeInvalido = true;
+                        tagParaEscrita.tagObjeto.erro.descricao = `Tipo de Struct informada '${tagParaEscrita.tagObjeto.dataTypeDados.struct.codigoStruct}' não existe ou não é suportado ainda.`;
                         continue;
                     }
                 }
             } else {
-                // Para qualquer tipo invalido ou não suportado ainda
-                novoObjTag.tagObjeto.erro.isDataTypeInvalido = true;
-                novoObjTag.tagObjeto.erro.descricao = `O Data Type informado para a tag '${tag.tag}' não é valido ou não é suportado ainda`;
+
+                // Se foi informado pra identificar o data type e não teve exito
+                if (tagParaEscrita.isIdentificaDataTypeAutomatico && !tagParaEscrita.identificaDataTypeAutomatico.isSucesso) {
+                    tagParaEscrita.tagObjeto.erro.isIdentificarDataTypeAutomatico = true;
+                    tagParaEscrita.tagObjeto.erro.descricao = `Erro ao tentar identificar automaticamente o Data Type: ${tagParaEscrita.identificaDataTypeAutomatico.erro.descricao}`;
+                } else {
+                    // Para qualquer tipo invalido ou não suportado ainda que foi informado manualmente
+                    tagParaEscrita.tagObjeto.erro.isDataTypeInvalido = true;
+
+                    tagParaEscrita.tagObjeto.erro.descricao = `O Data Type informado para a tag '${tagParaEscrita.tagObjeto.tag}' não é valido ou não é suportado ainda`;
+                }
                 continue;
             }
 
             // Se chegou aqui, a tag foi validada com sucesso com seu data type e valor correto
 
             // Gerar o buffer do Service Packet pra salvar o tamanho em bytes
-            let gerarBufferService = layerSingleService.criarBuffer();
+            let gerarBufferService = tagParaEscrita.servicePacket.criarBuffer();
             if (!gerarBufferService.isSucesso) {
 
-                novoObjTag.tagObjeto.erro.descricao = `Erro ao gerar o buffer do Service Packet para a tag ${tag.tag}: ${gerarBufferService.erro.descricao}. Trace Log: ${gerarBufferService.tracer.getHistoricoOrdenado().join(' -> ')}`;
+                tagParaEscrita.tagObjeto.erro.descricao = `Erro ao gerar o buffer do Service Packet para a tag ${tag.tag}: ${gerarBufferService.erro.descricao}. Trace Log: ${gerarBufferService.tracer.getHistoricoOrdenado().join(' -> ')}`;
                 continue;
             }
 
             // Salvar o tamanho do Service Packet
-            novoObjTag.tamanhoServicePacket = gerarBufferService.sucesso.buffer.length;
+            tagParaEscrita.tamanhoServicePacket = gerarBufferService.sucesso.buffer.length;
         }
 
         // Após realizar a validação de todas as tags solicitadas, filtrar somente as que foram validadas com sucesso com seus tipos e valores corretos.
@@ -2450,6 +2690,290 @@ export class CompactLogixRockwell {
     }
 
     /**
+     * Solicita a lista de todas as tags disponiveis no controlador CompactLogix.
+     * @param {Object} parametros - Alguns parametros opcionais
+     * @param {Number} parametros.instanciaOffset - A busca das tags é iniciado da instancia 0 até o limite de tags disponiveis. Se informado um valor, a busca começa a partir da instancia informada.
+     */
+    async obterListaDeTags(parametros) {
+        /**
+         * Informações da tag
+         * @typedef TagInfo
+         * @property {String} tag - Nome da tag
+         * @property {Number} instancia - Instancia de offset da tag na memoria do controlador
+         * @property {Object} dataType - Detalhes do data type da tag(se é atomico, struct, etc)
+         * @property {Boolean} dataType.isDataTypeSuportado - Se o data type da tag é suportado
+         * @property {Object} dataType.dataTypeNaoSuportado - Se isDataTypeSuportado for false, contém detalhes do data type recebido.
+         * @property {Number} dataType.dataTypeNaoSuportado.codigo - Código do Data Type não suportado
+         * @property {String} dataType.dataTypeNaoSuportado.descricao - Descrição com alguns detalhes do Data Type não suportado
+         * @property {Boolean} dataType.isAtomico - Se o Data Type é atomico(numeros, bit, booleano)
+         * @property {Boolean} dataType.isStruct - Se o Data Type é uma struct
+         * @property {DataTypeTagAtomico | DataTypeTagStruct} dataType.classeDataType - Essa informação é dinamica dependendo do tipo da tag, contém os detalhes da tag.
+         */
+
+        const retornoTags = {
+            /**
+             * Se foi possível obter a lista de tags com sucesso
+             */
+            isSucesso: false,
+            /**
+             * Se sucesso, contém detalhes das tags ou outras informações adicionais
+             */
+            sucesso: {
+                /**
+                 * Informações das tags encontradas
+                 * @type {TagInfo[]}
+                 */
+                tags: []
+            },
+            /**
+             * Se não deu pra obter a lista de tags, contém detalhes do erro
+             */
+            erro: {
+                descricao: ''
+            }
+        }
+
+        let novoPacoteENIP = this.getENIPSocket().getNovoLayerBuilder();
+
+        // Prepara os layers de encapsulamentos
+        const sendRRData = novoPacoteENIP.buildSendRRData();
+
+        // Serviço CIP
+        const servicoCIP = sendRRData.criarServicoCIP();
+
+        // Como é uma Unconnected Message, instancio o Connection Manager pra acessar as informações de classe e instancia
+        const connMan = servicoCIP.buildCIPConnectionManager()
+
+        // Crio o serviço de solicitar a leitura da tag
+        const sondaClasseTags = connMan.getCIPMessage().buildServicoCustomizadoPacket();
+
+        // Código de serviço 0x55 e a classe 0x6b não achei informações sobre, só sei que ele permite navegar pelas classes e instancias das tags do controlador
+        sondaClasseTags.setCodigoServico(0x55)
+        sondaClasseTags.setClasse(Buffer.from([0x20, 0x6b]))
+
+        // O CIP Generic Data eu informo a quantidade de atributos que vou buscar, e quais atributos quero
+        // Os primeiros 2 bytes é a quantidade de atributos pra retornar
+        // Próximos a cada 2 bytes é um ID do atributo.
+        // 0x01 0x00 = Atributo 1 = Nome da Tag
+        // 0x02 0x00 = Atributo 2 = Tipo de Dado da Tag
+        sondaClasseTags.setCIPGenericData(Buffer.from([0x03, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00]))
+
+        // Configurar o Request Path da Instancia
+        // 0x25 = Logical Segment / Type Instance ID / Formato 16 bit
+        const bufferSegmento = Buffer.from([0x25, 0x00])
+
+        // Cada tag no controlador tem um código de instancia que indica sua posição. A instancia 0 retorna o inicio das primeiras tags até um certo limite onde inicia a proxima tag.
+        // Por exemplo a instancia 0 armazena a tag TESTE, a proxima tag não é armazenada incremental exatamente no 1, vai ser um valor maior, por exemplo 7, que poderia ser a tag LEGAL.
+        // Então a instancia 0 retorna a tag TESTE, e a instancia 7 retorna a tag LEGAL.
+        // Se for solicitado a instancia de 0 até 6, vai retornar somente a tag TESTE, como se fosse uma região de memoria onde do 0 até o 6 pertence a tag TESTE, e do 7 até a proxima x instancia seria a tag LEGAL.
+
+        // Aqui eu salvo a ultima instancia da solicitação. Cada solicitação retorna o maximo de tags que cabe no pacote CIP, a ultima tag no pacote eu salvo a instancia ID e uso pra solicitar as proximas a partir dela, até não ter mais nenhuma(retorna Sucess ao invés de Partial Transfer)
+        let ultimaInstanciaId = 0;
+        if (parametros != undefined) {
+            if (parametros.instanciaOffset != undefined) {
+                if (isNaN(parametros.instanciaOffset)) {
+                    throw new Error('O valor do offset da instancia deve ser um número');
+                }
+
+                ultimaInstanciaId = parseInt(parametros.instanciaOffset);
+            }
+        }
+
+        // Senior developer
+        while (true) {
+
+            // Definir o offset do inicio da instancia para retornar as próximas tags
+            let bufferInstancia = Buffer.alloc(2);
+            bufferInstancia.writeUInt16LE(ultimaInstanciaId);
+
+            sondaClasseTags.setInstancia(Buffer.concat([bufferSegmento, bufferInstancia]));
+            let respostaENIP = await this.getENIPSocket().enviarENIP(novoPacoteENIP);
+
+            // Se ocorreu algum erro no envio <-> recebimento do ENIP
+            if (!respostaENIP.isSucesso) {
+
+                // Se não foi enviado
+                if (!respostaENIP.enipEnviar.isEnviou) {
+
+                    retornoTags.erro.descricao = `Erro ao enviar o pacote ENIP de solicitação de tags: ${respostaENIP.enipEnviar.erro.descricao}. ${respostaENIP.enipEnviar.erro.isGerarBuffer ? `Trace Log: ${respostaENIP.enipEnviar.erro.erroGerarBuffer.traceLog}` : ''}`;
+                    return retornoTags;
+                }
+
+                // Se foi enviado, porém não recebeu a resposta
+                if (!respostaENIP.enipReceber.isRecebeu) {
+
+                    retornoTags.erro.descricao = `Erro ao receber a resposta do pacote ENIP de solicitação de tags: ${respostaENIP.enipReceber.erro.descricao}.`;
+                    return retornoTags;
+                }
+            }
+
+            // Ok, o envio e recebimento estão oks, verificar se foi retornado a resposta válida
+
+            // O comando recebido precisa ser o SendRRData
+            if (!respostaENIP.enipReceber.enipParser.isSendRRData()) {
+                retornoTags.erro.descricao = 'O pacote de resposta não é um comando SendRRData';
+                return retornoTags;
+            }
+
+            const sendRRDataParser = respostaENIP.enipReceber.enipParser.getAsSendRRData();
+            // Validar se o SendRRData é valido
+            if (!sendRRDataParser.isValido().isValido) {
+
+                retornoTags.erro.descricao = `O pacote SendRRData não é valido, alguma informação no Buffer está incorreta: ${sendRRDataParser.isValido().erro.descricao}. Trace log: ${sendRRDataParser.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
+                return retornoTags;
+            }
+
+            // Se SendRRData é valido, validar se foi retornado o encapsulamento CIP com os dados das tags
+            if (!sendRRDataParser.isServicoCIP()) {
+                retornoTags.erro.descricao = 'O pacote de resposta não é um serviço CIP';
+                return retornoTags;
+            }
+
+            const servicoCIPParser = sendRRDataParser.getAsServicoCIP();
+
+            // Validar se o CIP é valido
+            if (!servicoCIPParser.isValido().isValido) {
+                retornoTags.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${servicoCIPParser.isValido().erro.descricao}. Trace log: ${servicoCIPParser.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
+                return retornoTags;
+            }
+
+            // Obter a classe como generica pois eu vou tratar os dados manualmente.
+            const servicoGenericoPacket = servicoCIPParser.getAsServicoGenericoPacket();
+
+            if (!servicoGenericoPacket.isValido().isValido) {
+                retornoTags.erro.descricao = `O pacote de resposta não é um serviço generico não é valido, alguma informação no Buffer está incorreta: ${servicoGenericoPacket.isValido().erro.descricao}. Trace log: ${servicoGenericoPacket.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
+                return retornoTags;
+            }
+
+            // Verificar se a requisição teve um status valido que retornou algo valido. Pra ser valido, tem que ser Sucess ou Partial Transfer, ambos retornam dados validos, se for qualquer outro status, é erro.
+            if (servicoGenericoPacket.getStatus().codigoStatus != CIPGeneralStatusCodes.Success.hex && servicoGenericoPacket.getStatus().codigoStatus != CIPGeneralStatusCodes.PartialTransfer.hex) {
+                retornoTags.erro.descricao = `O pacote CIP retornou com o status ${servicoGenericoPacket.getStatus().codigoStatus}: ${servicoGenericoPacket.getStatus().descricaoStatus} ao obter as tags a partir da instancia ${ultimaInstanciaId}.`;
+
+                return retornoTags;
+            }
+
+            // Beleza, todas as informações validadas, vou ter o CIP Generic Data que contém as informações das tags
+            const bufferCIPGenericData = servicoGenericoPacket.getCIPClassCommandSpecificData();
+
+            // Trata os 2 bytes do data type pra retornar o tipo correto
+            const parseDataType = (tipo) => {
+                let typeCode = null;
+                if ((tipo & 0x00ff) === 0xc1) {
+                    typeCode = 0x00c1;
+                }
+                else {
+                    typeCode = tipo & 0x0fff;
+                }
+
+                return typeCode;
+            }
+
+            // O Buffer vai conter uma sequencia de bytes que contém as informações das tags. 0 começa o inicio de informações da 1 tag
+            // Baseado no CIP que enviei solicitando 2 atributos, a sequencia de informações de cada tag é:
+            /**
+             * 4 Bytes = Instancia ID
+             * 2 Bytes = Tamanho do nome da tag
+             * x Bytes = Nome da tag
+             * 2 Bytes = Data Type da tag
+             */
+
+            let offsetTag = 0;
+            while (offsetTag < bufferCIPGenericData.length) {
+
+                // Primeiros 4 bytes é a instancia ID da tag atual
+                const instanciaIDTag = bufferCIPGenericData.readUInt32LE(offsetTag);
+
+                ultimaInstanciaId = instanciaIDTag + 1;
+
+                // Proximos 2 bytes é o tamanho da tag
+                offsetTag += 4;
+                const tamanhoTag = bufferCIPGenericData.readUInt16LE(offsetTag);
+
+                offsetTag += 2;
+                // Proximos x bytes é o nome da tag
+                const nomeTag = bufferCIPGenericData.subarray(offsetTag, offsetTag + tamanhoTag).toString();
+
+                offsetTag += tamanhoTag;
+                // Proximos 2 bytes é o Data Type da tag
+                const dataTypeTag = bufferCIPGenericData.readUInt16LE(offsetTag);
+
+                // Aumentar 2 bytes pra iniciar na próxima tag
+                offsetTag += 2;
+
+                /**
+                 * Armazenar a tag encontrada
+                 * @type {TagInfo}
+                 */
+                const tagTypeDetalhe = {
+                    tag: nomeTag,
+                    instancia: instanciaIDTag,
+                    dataType: {
+                        classeDataType: {},
+                        isAtomico: false,
+                        isStruct: false,
+                        isDataTypeSuportado: false,
+                        dataTypeNaoSuportado: {
+                            codigo: undefined
+                        }
+                    }
+                }
+
+                const dataTypeConvertido = parseDataType(dataTypeTag)
+
+                // Obter o data type da tag(se é atomico, struct..)
+                const dataType = this.getTipoDataType(dataTypeConvertido);
+
+                if (dataType.isAtomico) {
+                    // Se atomico
+
+                    tagTypeDetalhe.dataType.isAtomico = true;
+                    tagTypeDetalhe.dataType.isDataTypeSuportado = true;
+                    tagTypeDetalhe.dataType.classeDataType = this.getDataTypeAtomico(dataTypeConvertido);
+                } else if (dataType.isStruct) {
+                    // Se Struct
+
+                    switch (dataTypeConvertido) {
+
+                        // Se for uma struct ASCII String 82
+                        case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                            tagTypeDetalhe.dataType.isStruct = true;
+                            tagTypeDetalhe.dataType.isDataTypeSuportado = true;
+                            tagTypeDetalhe.dataType.classeDataType = this.getDataTypeStruct(dataTypeConvertido);
+                            break;
+                        }
+                        // Se for uma struct que ainda não há suporte
+                        default: {
+                            tagTypeDetalhe.dataType.dataTypeNaoSuportado.codigo = dataTypeConvertido;
+                            tagTypeDetalhe.dataType.dataTypeNaoSuportado.descricao = `Data Type é um Struct porém ainda não há suporte para esse tipo.`;
+                            break;
+                        }
+                    }
+
+                } else {
+
+                    // Se ainda não for suportado, adiciono o tipo original recebido
+                    tagTypeDetalhe.dataType.dataTypeNaoSuportado.codigo = dataTypeConvertido;
+                    tagTypeDetalhe.dataType.dataTypeNaoSuportado.descricao = `Data Type não é atomico e nem struct.`;
+                }
+
+                retornoTags.sucesso.tags.push(tagTypeDetalhe);
+            }
+
+            // Depois de analisar o Buffer, verificar se ainda preciso solicitar mais instancias ou se já cheguei ao fim.
+
+            // Se retornou o status 0, é porque não tem mais tags pra retornar
+            if (servicoGenericoPacket.getStatus().codigoStatus == CIPGeneralStatusCodes.Success.hex) {
+                break;
+            }
+
+            // Se não for sucesso, é Partial Transfer, então preciso solicitar mais tags no proximo loop
+        }
+
+        retornoTags.isSucesso = true;
+        return retornoTags;
+    }
+
+    /**
      * Retorna os Data Types disponiveis do controlador CompactLogix
      */
     getDataTypes() {
@@ -2510,7 +3034,7 @@ export class CompactLogixRockwell {
             if (this.isDataTypeAtomico(codigo)) {
                 dataTipo.isAtomico = true;
             }
-        } else if (codigo == 672) {
+        } else if (codigo == 672 || this.isDataTypeStruct(codigo)) {
             dataTipo.isStruct = true;
         }
 

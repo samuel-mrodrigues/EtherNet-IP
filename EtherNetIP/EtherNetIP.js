@@ -40,7 +40,7 @@ export class EtherNetIPSocket {
         ip: '',
         porta: 0,
         logs: {
-            habilitarLogsConsole: true
+            habilitarLogsConsole: false
         }
     }
 
@@ -765,7 +765,6 @@ export class EtherNetIPSocket {
 
         // Extrair o Sender Context do pacote recebido
         const senderContextBuffer = etherNetIPParser.getSenderContext();
-        console.log(senderContextBuffer);
 
         // Ler os 5 bytes que contém o ID unico da requisição original
         let enipIDUnico = senderContextBuffer.readUIntLE(0, 5);
