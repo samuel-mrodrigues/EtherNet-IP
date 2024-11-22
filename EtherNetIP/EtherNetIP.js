@@ -84,7 +84,7 @@ export class EtherNetIPSocket {
                 /**
                  * ID numerico do Session Handler
                  */
-                sessionHandlerID: -1,
+                sessionHandlerID: 0,
                 /**
                  * Indica se está autenticado com o dispositivo EtherNet/IP
                  */
@@ -394,8 +394,19 @@ export class EtherNetIPSocket {
 
     /**
      * Conecta com o dispositivo EtherNet/IP
+     * @returns {Promise<conectarRetorno>} - Status da conexão com o dispositivo EtherNet/IP
      */
     async conectar() {
+        /**
+         * @typedef conectarRetorno
+         * @property {Boolean} isConectou - Se a conexão foi estabelecida com sucesso
+         * @property {Object} erro - Se ocorreu erros na conexão, contém detalhes do erro
+         * @property {String} erro.descricao - Descrição do erro generalizado
+         */
+
+        /**
+         * @type {conectarRetorno}
+         */
         const retornoConexao = {
             isConectou: false,
             erro: {
@@ -427,7 +438,7 @@ export class EtherNetIPSocket {
 
         novoSocket.on('close', (houveErro) => {
             this.#onConexaoFechada(houveErro);
-            resolvePromise()
+            resolvePromise(retornoConexao)
         })
 
         novoSocket.on('data', (dados) => {
@@ -435,13 +446,21 @@ export class EtherNetIPSocket {
         })
 
         novoSocket.on('error', (erro) => {
+            retornoConexao.erro.descricao = erro.message;
             this.#onConexaoErro(erro);
         })
 
         novoSocket.on('ready', async () => {
             this.#onConexaoEstabelecida();
-            await this.autenticarENIP();
-            resolvePromise()
+
+            let retornoAutentica = await this.autenticarENIP();
+            if (retornoAutentica.isAutenticou) {
+                retornoConexao.isConectou = true;
+            } else {
+                retornoConexao.erro.descricao = `Erro em autenticar com o dispositivo: ${retornoAutentica.erro.descricao}`;
+            }
+
+            resolvePromise(retornoConexao)
         })
 
         novoSocket.connect({ host: this.#configuracao.ip, port: this.#configuracao.porta });
@@ -495,6 +514,7 @@ export class EtherNetIPSocket {
         this.#estado.ethernetIP.autenticacao.isAutenticado = false;
         this.#estado.ethernetIP.autenticacao.isJaTentouAutenticar = true;
         this.#estado.ethernetIP.autenticacao.detalhesErro.descricao = '';
+        this.#estado.ethernetIP.autenticacao.sessionHandlerID = 0;
 
         // Enviar a solicitação de RegisterSession ao dispositivo para obter o Session Handle
         this.log('Autenticando com o dispositivo EtherNet/IP...');
@@ -549,6 +569,21 @@ export class EtherNetIPSocket {
         // teria sido descartado.
 
         const ENIPResposta = statusEnviaENIP.enipReceber.enipParser;
+
+        // Validar se o ENIP retornou sucesso
+        if (!ENIPResposta.isStatusSucesso().isSucesso) {
+
+            // Ele retorna status de erro 1 se for tentar autenticar novamente, mesmo já estando autenticado
+            if (ENIPResposta.getStatus().codigo == 1) {
+                detalhesAutentica.erro.descricao = `Já existe uma sessão autenticada com o dispositivo EtherNet/IP.`;
+            } else {   
+                detalhesAutentica.erro.descricao = `O pacote EtherNet/IP do comando RegisterSession retornou um erro: ${ENIPResposta.isStatusSucesso().erro.descricao}`;
+            }
+
+            this.#estado.ethernetIP.autenticacao.isAutenticando = false;
+            this.#estado.ethernetIP.autenticacao.detalhesErro.descricao = detalhesAutentica.erro.descricao;
+            return detalhesAutentica;
+        }
 
         const sessionHandlerID = ENIPResposta.getSessionHandlerID();
         this.#estado.ethernetIP.autenticacao.sessionHandlerID = sessionHandlerID;
@@ -757,10 +792,10 @@ export class EtherNetIPSocket {
         const etherNetIPParser = new EtherNetIPLayerParser(buffer);
 
         // Só aceito se for um Buffer de um pacote EtherNet/IP válido
-        if (!etherNetIPParser.isValido().isValido) {
-            this.log(`Recebido um pacote EtherNet/IP inválido: ${etherNetIPParser.isValido().erro.descricao}. Stack de erro: ${etherNetIPParser.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`);
-            return;
-        }
+        // if (!etherNetIPParser.isValido().isValido) {
+        //     this.log(`Recebido um pacote EtherNet/IP inválido: ${etherNetIPParser.isValido().erro.descricao}. Stack de erro: ${etherNetIPParser.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`);
+        //     return;
+        // }
 
 
         // Extrair o Sender Context do pacote recebido

@@ -5,7 +5,7 @@ import { MultipleServicePacketParser } from "./Servicos/MultipleServicePacket.js
 import { ServicoGenericoParser } from "./Servicos/ServicoGenerico/ServicoGenerico.js";
 import { TraceLog } from "../../../../../../Utils/TraceLog.js";
 import { hexDeBuffer, numeroToHex } from "../../../../../../Utils/Utils.js";
-import { CIPGeneralStatusCodes, getStatusCode } from "../../../../../../Utils/CIPRespondeCodes.js";
+import { getStatusCode } from "../../../../../../Utils/CIPRespondeCodes.js";
 
 /**
  * O CIP Parser é responsavél por dar parse no layer CIP

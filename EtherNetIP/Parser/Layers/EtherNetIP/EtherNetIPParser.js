@@ -204,14 +204,15 @@ export class EtherNetIPLayerParser {
 
         // Se o status não for sucesso, devo ignorar ela e não devolvo nenhuma resposta ao dispositivo
         if (status != Status.Sucess.hex) {
-            this.#statusLayer.isValido = false;
-            this.#statusLayer.erro.descricao = `Status diferente de sucesso 0x0. Codigo ${statusLayer.hex}: ${statusLayer.descricao})`;
-            this.#campos.header.statusCodigo = status;
+            tracerBuff.add(`Status diferente de sucesso 0x0. Codigo ${statusLayer.hex}: ${statusLayer.descricao}). Prosseguindo...`);
+            // this.#statusLayer.isValido = false;
+            // this.#statusLayer.erro.descricao = `Status diferente de sucesso 0x0. Codigo ${statusLayer.hex}: ${statusLayer.descricao})`;
+            // this.#campos.header.statusCodigo = status;
 
-            retornoParse.erro.descricao = this.#statusLayer.erro.descricao;
+            // retornoParse.erro.descricao = this.#statusLayer.erro.descricao;
 
-            tracerBuff.add(`Status diferente de sucesso 0x0. Codigo ${statusLayer.hex}: ${statusLayer.descricao})`);
-            return retornoParse;
+            // tracerBuff.add(`Status diferente de sucesso 0x0. Codigo ${statusLayer.hex}: ${statusLayer.descricao})`);
+            // return retornoParse;
         }
 
         tracerBuff.add(`Header de Encapsulamento lido com sucesso.`);
