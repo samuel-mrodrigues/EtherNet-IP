@@ -211,7 +211,7 @@ A classe CompactLogix implementa o uso da classe EtherNet/IP pra tratar os pacot
 É interessante colocar como auto reconectar, pois em caso de perca de conexão ele irá automaticamente tentar se conectar quando possível e já vai iniciar todo aquele trabalho de registrar a sessão.
 
 ### Leitura de Tags
-No momento, é compatível a leitura de tipos atomicos(numeros no geral, como Small Int, Double int, Int, Double Int, Boolean, Real), Structs suporte apenas StringASCII82(no momento somente esse pois é o que eu uso e preciso.) e também arrays, acessando via nomeTag[index]
+No momento, é compatível a leitura de tipos atomicos(numeros no geral, como Small Int, Double int, Int, Double Int, Boolean, Real), Structs tem suporte apenas StringASCII82(no momento somente esse pois é o que eu uso e preciso.) e também arrays, acessando via nomeTag[index]
 
 Segue alguns exemplos abaixos para leituras
 ```javascript
@@ -368,7 +368,7 @@ Segue alguns exemplos abaixos para leituras
     // }
 ```
 ### Escrita de Tags
-Para realizar a escrita é praticamente a mesma coisa. Você pode tanto informar o data type no parametro da função, ou utilizar a opção extra que
+Para realizar a escrita é praticamente a mesma coisa. Você pode tanto informar o Data Type no parâmetro da função ou utilizar a opção extra que
 automaticamente realiza a descoberta do tipo(solicitando ao controlador).
 
 As escritas retornam sucesso se a operação foi feita com sucesso, e também é retornado as informações do valor escrito junto com seu data type.
@@ -479,7 +479,7 @@ As escritas retornam sucesso se a operação foi feita com sucesso, e também é
     // }
     // -------------------------------
 
-        // Para escrever múltiplas tags, informe um array de objetos seguindo o padrão esperado.
+    // Para escrever múltiplas tags, informe um array de objetos seguindo o padrão esperado.
     const escreveMultiplasTags = await compactLogix.escreveMultiplasTags([
         {tag: 'TESTE', dataType: {isAtomico: true, atomico: {codigoAtomico: compactLogix.getDataTypes().atomicos.DINT.codigo, valor: 5}}},
         {tag: 'TESTE2', dataType: {isResolverAutomaticamente: true, resolverAutomaticamente: {valor: 5}}},
@@ -654,7 +654,7 @@ As escritas retornam sucesso se a operação foi feita com sucesso, e também é
     const solicitaListaTags = await compactLogix.obterListaDeTags();
     console.log(solicitaListaTags);
 
-    // O retorno contém o data type, instancia dela no controlador, e se ela é suportada atualmente para interagir utilizando essa classe
+    // O retorno contém o data type, instancia dela no controlador e se ela é suportada atualmente para interagir utilizando essa classe
     // {
     // "isSucesso": true,
     // "sucesso": {
