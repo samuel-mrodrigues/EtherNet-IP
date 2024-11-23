@@ -286,7 +286,7 @@ Segue alguns exemplos abaixos para leituras
     // -------------------------------
 
      // Ler uma unica tag de um array
-    const retornoLeIndiceArray = await compactLogix.lerTag('BD_G2_MOTIVO_DIA_1[3]');
+    const retornoLeIndiceArray = await compactLogix.lerTag('MINHA_TAG[3]');
     console.log(retornoLeIndiceArray);
 
     // {
@@ -320,7 +320,7 @@ Segue alguns exemplos abaixos para leituras
     const retornoLerVarias = await compactLogix.lerMultiplasTags(['TESTE2', 'TESTE'])
     console.log(retornoLerVarias);
 
-    // A operação de leitura multiplica é considera sucesso se o pacote ENIP foi enviado e recebido com sucesso.
+    // A operação de leitura múltipla é considerada sucesso se o pacote ENIP foi enviado e recebido com sucesso.
     // Se houve isSucesso, as tags solicitadas estarão no array sucesso com seus status individuais de cada um.
 
     // {
