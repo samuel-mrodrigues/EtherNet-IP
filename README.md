@@ -1,11 +1,11 @@
 # Projeto
-Esse projeto permite estabelecer conexões via protocolo EtherNet/IP(EtherNet Industrial Protocol) para troca de informações com dispositivos que suportem o protocolo CIP. De inicio, ele fornece uma classe EtherNet/IP que permite abrir uma conexão TCP com o dispositivo remoto, e através dela é possível customizar a informação que vai ser enviada ao dispositivo.
+Esse projeto permite estabelecer conexões via protocolo EtherNet/IP(EtherNet Industrial Protocol) para troca de informações com dispositivos que suportem o protocolo CIP. De inicio, ele fornece uma classe EtherNet/IP que permite abrir uma conexão TCP com o dispositivo remoto, e através dela é possível customizar a informação que vão ser enviadas ao dispositivo.
 
-Outras bibliotecas de EtherNet/IP até fazem a mesma função porém de forma muito basica e superficial, eu queria algo que tivesse mais controle sobre as informações retornadas e deixasse facíl de interagir com os dispositivos, então decidi criar um do zero.
+Outras bibliotecas de EtherNet/IP até fazem a mesma função porém de forma basica e superficial, eu queria algo que tivesse mais controle sobre as informações retornadas e deixasse facíl de interagir com os dispositivos, então decidi criar um do zero.
 
 Não tenho certeza ainda pois só cheguei a implementar um tipo de comunicação até o momento com um controlador CompactLogix da RockWell, mas pelas minhas pesquisas, de forma geral todos os dispositivos que suportam o protocolo CIP possuem até um certo nivel de padrão onde todos devem seguir, e depois disso vem os detalhes especificos que mudam dependendo da fabricante do CLP. Por exemplo, a forma de escrever um valor em um controlador X é diferente no controlador Y. Utilizando a classe EtherNet/IP contida no projeto, é possível customizar livremente todas as informações de um comando CIP para que ele fique compatível com o dispositivo que você deseja se comunicar.
 
-Como citei, em Controladores tem uma classe pronta que usa o EtherNet/IP para se comunicar com um CompactLogix. Assim como eu fiz dessa forma, é possível criar outras classes para outros tipos de dispositivos usando como base o EtherNet/IP, você só precisa saber como montar o payload corretamente.
+Na pasta Controladores tem uma classe pronta que usa o EtherNet/IP para se comunicar com um CompactLogix. Assim como eu fiz dessa forma, é possível criar outras classes para outros tipos de dispositivos usando como base o EtherNet/IP, você só precisa saber como montar o payload corretamente.
 # Como usar
 ## EtherNet/IP
 A classe do EtherNet/IP utiliza o Builder(Monta o pacote de Buffer que vai ser enviado ao dispositivo) e o Parser(Recebe o Buffer e organiza a informação sem muita dor de cabeça). 
