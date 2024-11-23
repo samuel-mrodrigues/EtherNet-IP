@@ -23,6 +23,7 @@ import { CommandSpecificDataListServicesBuilder } from "./CommandSpecificDatas/L
 import { CommandSpecificDataSendRRDataBuilder } from "./CommandSpecificDatas/SendRRData/SendRRData.js";
 import { TraceLog } from "../../../Utils/TraceLog.js";
 import { hexDeBuffer, numeroToHex } from "../../../Utils/Utils.js";
+import { CommandSpecificDataUnRegisterSessionBuilder } from "./CommandSpecificDatas/UnRegisterSession/UnRegisterSession.js";
 
 /**
  * O Layer de EtherNet/IP (Industiral Protocol) contém as informações de encapsulamento do Header + Command Specific Data
@@ -168,6 +169,17 @@ export class EtherNetIPLayerBuilder {
         this.#campos.header.command = Comandos.RegisterSession.hex;
         this.#campos.classeCommandSpecificData = cmdRegisterSession;
         return cmdRegisterSession;
+    }
+
+    /**
+     * Builda o layer para corresponder ao Command Specific Data de um comando UnRegister Session
+     */
+    buildUnRegisterSession() {
+        let cmdUnRegisterSession = new CommandSpecificDataUnRegisterSessionBuilder();
+
+        this.#campos.header.command = Comandos.UnRegisterSession.hex;
+        this.#campos.classeCommandSpecificData = cmdUnRegisterSession;
+        return cmdUnRegisterSession;
     }
 
     /**

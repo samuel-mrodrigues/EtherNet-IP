@@ -1,9 +1,9 @@
+import { TraceLog } from "../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../Utils/Utils.js";
+
 /**
  * O Register Session possui um Command Specific Data com dois campos
  */
-
-import { TraceLog } from "../../../../../Utils/TraceLog.js";
-import { hexDeBuffer } from "../../../../../Utils/Utils.js";
 
 /**
  * Command Specific Data

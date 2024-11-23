@@ -156,6 +156,7 @@ export class CompactLogixRockwell {
      * @param {Number} parametros.porta - Porta de comunicação com o controlador CompactLogix
      * @param {Boolean} parametros.habilitaLogsEtherNetIP - Se os logs do gerenciador de EtherNetIP devem ser mostrados
      * @param {Boolean} parametros.habilitarLogsCompactLogix - Se os logs desse CompactLogix devem ser mostrados
+     * @param {Boolean} parametros.autoReconectar - Se deve tentar reconectar automaticamente em caso de: 1 - Perda de conexão com o controlador, 2 - Desautenticação com o dispositivo por algum motivo(acho raro acontecer '-')
      */
     constructor(parametros) {
         if (parametros == undefined || typeof parametros != 'object') throw new Error('Parâmetros de conexão não informados');
@@ -179,8 +180,83 @@ export class CompactLogixRockwell {
             conexao: {
                 ip: this.#configuracao.ip,
                 porta: this.#configuracao.porta
-            }
+            },
+            isAutoReconnect: parametros.autoReconectar
         });
+    }
+
+    /**
+     * Conectar o Socket EtherNet/IP.
+     */
+    async conectar() {
+
+        /**
+         * @typedef conectarRetorno
+         * @property {Boolean} isConectou - Se a conexão foi bem sucedida
+         * @property {Object} erro - Se não conectou, contém os detalhes do motivo
+         * @property {String} erro.descricao - Descrição do erro ocorrido
+         * @property {Boolean} erro.isSemConexao - Se o erro foi causado por não conseguir conectar ao controlador
+         * @property {Boolean} erro.isAutenticar - Se o erro foi causado devido ao erro de tentar estabelecer a conexão com o RegisterSession
+         * @property {Boolean} erro.isDispositivoRecusou - Se o erro foi causado devido ao dispositivo recusar a conexão
+         */
+
+        /**
+         * @type {conectarRetorno}
+         */
+        const retornoConexao = {
+            isConectou: false,
+            erro: {
+                descricao: '',
+                isAutenticar: false,
+                isDispositivoRecusou: false,
+                isSemConexao: false
+            }
+        }
+
+        let retornoConectar = await this.#ENIPSocket.conectar();
+
+        // Se o EtherNet/IP não conseguiu se conectar
+        if (!retornoConectar.isConectou) {
+
+            if (retornoConectar.erro.isSemConexao) {
+                retornoConexao.erro.descricao = 'Sem comunicação com o dispositivo remoto';
+                retornoConexao.erro.isSemConexao = true;
+            } else if (retornoConectar.erro.isFalhaAutenticar) {
+                retornoConexao.erro.descricao = `Falha ao autenticar com o dispositivo remoto: ${retornoConectar.erro.descricao}`;
+                retornoConexao.erro.isAutenticar = true;
+            } else if (retornoConectar.erro.isDispositivoRecusou) {
+                retornoConexao.erro.descricao = 'Dispositivo remoto recusou a conexão';
+                retornoConexao.erro.isDispositivoRecusou = true;
+            } else {
+                retornoConexao.erro.descricao = `Erro ao tentar se conectar: ${retornoConectar.erro.descricao}`;
+            }
+        }
+
+        retornoConexao.isConectou = true;
+        return retornoConexao;
+    }
+
+    /**
+     * Desconectar o Socket EtherNet/IP. É enviado ao dispositivo a solicitação de UnRegister Session para excluir a sessão da memoria e o Socket TCP é destruido junto.
+     ** Mesmo que o comando não seja enviado(por exemplo se esta sem conexão com o dispositivo), o socket é destruido de qualquer forma e é necessario conectar novamente.
+     */
+    async desconectar() {
+        await this.#ENIPSocket.desconectar();
+    }
+
+    /**
+     * Retorna se o Socket de comunicação com o controlador CompactLogix está conectado(Isso não é o mesmo que se está autenticado, apenas informa se o socket TCP está aberto)
+     */
+    isSocketConectado() {
+        return this.#ENIPSocket.getEstadoConexao().isConectado;
+    }
+
+    /**
+     * Retorna se a autenticação está estabelecida com o controlador CompactLogix
+     ** Se estiver desconectado, isso será false, então da pra usar esse cara pra saber se tá tudo conectado certo ou não
+     */
+    isAutenticado() {
+        return this.#ENIPSocket.getEstadoAutenticacao().isAutenticado;
     }
 
     /**
@@ -335,6 +411,23 @@ export class CompactLogixRockwell {
                     isDemorouResposta: false
                 },
                 /**
+                 * O pacote EtherNet/IP retornado não retornou sucesso
+                 */
+                isENIPStatusErro: false,
+                /**
+                 * Se isENIPStatusErro, contém os detalhes do erro
+                 */
+                ENIPStatusErro: {
+                    /**
+                     * Código de identificação do erro
+                     */
+                    codigo: '',
+                    /**
+                     * Descrição da identificação do erro
+                     */
+                    mensagem: ''
+                },
+                /**
                  * Se o erro ocorrido foi devido a algum dos layers do pacote ENIP recebido estarem incorretos. É somente para erros de parse dos Buffers recebidos e suas camadas e garantir que os bytes recebidos estão em conformidade. Por exemplo
                  * se foi requisitado ler uma tag que não existe, o controlador vai responder com um status de invalido no SingleServicePacket, então não caira em tratativas dos erros, e sim de status.
                  */
@@ -343,6 +436,19 @@ export class CompactLogixRockwell {
                  * Se isErroLayers, contém qual layer ocorreu o erro
                  */
                 erroLayers: {
+                    /**
+                     * Se o primeiro layer que é o EtherNet/IP é o que está com erros
+                     */
+                    isENIPInvalido: false,
+                    /**
+                     * Se isENIPInvalido, contém os detalhes do erro
+                     */
+                    ENIPInvalido: {
+                        /**
+                         * Array de mensagens com o historico de cada etapa do processamento do Buffer, conterá onde ocorreu o erro no Buffer
+                         */
+                        trace: []
+                    },
                     /**
                      * Se o layer do SendRRData é valido
                      */
@@ -384,7 +490,7 @@ export class CompactLogixRockwell {
                     }
                 },
                 /**
-                 * Se o erro foi causado devido a um erro de status, ou seja os layers estão todos em conformidade, porém o dispositivo retornou um status diferente de sucesso para a operação de leitura da tag
+                 * Se o erro foi causado devido a um erro de status, ou seja os layers estão todos em conformidade, porém o dispositivo retornou um status diferente de sucesso para a operação de leitura da tag(Esse erro é somente para o CIP)
                  */
                 isStatusInvalido: false,
                 /**
@@ -495,6 +601,24 @@ export class CompactLogixRockwell {
 
         // Se chegou aqui, eu tenho o pacote ENIP de resposta do controlador. Agora preciso verificar se ele retornou sucesso ou não na operação de leitura
         const ENIPResposta = statusEnviaENIP.enipReceber.enipParser;
+
+        // Se o comando ENIP principal deu erro
+        if (!ENIPResposta.isValido().isValido) {
+            retornoTag.erro.descricao = `O pacote de resposta ENIP não é valido, alguma informação no Buffer está incorreta: ${ENIPResposta.isValido().erro.descricao}`;
+            retornoTag.erro.isErroLayers = true;
+            retornoTag.erro.erroLayers.isENIPInvalido = true;
+            retornoTag.erro.erroLayers.ENIPInvalido.trace = ENIPResposta.isValido().tracer.getHistoricoOrdenado();
+            return retornoTag;
+        }
+
+        // Se o ENIP for validado, verificar se ele retornou o estado de sucesso
+        if (!ENIPResposta.isStatusSucesso().isSucesso) {
+            retornoTag.erro.descricao = `O pacote de resposta ENIP retornou um status de erro: ${ENIPResposta.getStatus().codigo} - ${ENIPResposta.getStatus().mensagem}`;
+            retornoTag.erro.ENIPStatusErro.codigo = ENIPResposta.getStatus().codigo;
+            retornoTag.erro.ENIPStatusErro.mensagem = ENIPResposta.getStatus().mensagem;
+            retornoTag.erro.isENIPStatusErro = true;
+            return retornoTag;
+        }
 
         // O comando que deve ser retornado é um SendRRData. Na teoria isso nunca deveria cair aqui pq a resposta do ENIP sempre deve corresponder a solicitação original, se enviou um SendRRData, deve receber um SendRRData
         if (!ENIPResposta.isSendRRData()) {
@@ -681,10 +805,40 @@ export class CompactLogixRockwell {
                 tags: []
             },
             /**
-             * Se ocorreu algum erro durante a requisição
+             * Se ocorreu algum erro durante a requisição.
              */
             erro: {
-                descricao: ''
+                descricao: '',
+                /**
+                 * Se o erro foi causado pelo recibo do pacote ENIP com erros no Buffer
+                 */
+                isENIPInvalido: false,
+                /**
+                 * Se isENIPInvalido, contém os detalhes do erro
+                 */
+                ENIPInvalido: {
+                    /**
+                     * Array de mensagens com o historico de cada etapa do processamento do Buffer, conterá onde ocorreu o erro no Buffer
+                     */
+                    trace: []
+                },
+                /**
+                 * Se o erro foi causado devido ao status de retorno do pacote ENIP diferente de Sucesso.
+                 */
+                isENIPStatusErro: false,
+                /**
+                 * Se isENIPStatusErro, contém os detalhes do erro
+                 */
+                ENIPStatusErro: {
+                    /**
+                     * Código de identificação do erro
+                     */
+                    codigo: '',
+                    /**
+                     * Descrição da identificação do erro
+                     */
+                    descricao: ''
+                }
             }
         }
 
@@ -797,6 +951,27 @@ export class CompactLogixRockwell {
 
         // Se chegou aqui, o pacote ENIP foi enviado e recebido com sucesso. Agora é analisar o conteúdo da resposta nos próximos layers
         const ENIPResposta = statusEnviaENIP.enipReceber.enipParser;
+
+        // Se o pacote ENIP não é valido
+        if (!ENIPResposta.isValido().isValido) {
+            retornoLeituraMultipla.erro.descricao = `O pacote de resposta ENIP não é valido, alguma informação no Buffer está incorreta: ${ENIPResposta.isValido().erro.descricao}`;
+
+            retornoLeituraMultipla.erro.isENIPInvalido = true;
+            retornoLeituraMultipla.erro.ENIPInvalido.trace = ENIPResposta.isValido().tracer.getHistoricoOrdenado();
+
+            return retornoLeituraMultipla;
+        }
+
+        // Ok, se o pacote ENIP for valido, verificar o status retornou Sucesso
+        if (!ENIPResposta.isStatusSucesso().isSucesso) {
+            retornoLeituraMultipla.erro.descricao = `O pacote de resposta ENIP retornou um status de erro: ${ENIPResposta.getStatus().codigo} - ${ENIPResposta.getStatus().mensagem}`;
+
+            retornoLeituraMultipla.erro.isENIPStatusErro = true;
+            retornoLeituraMultipla.erro.ENIPStatusErro.codigo = ENIPResposta.getStatus().codigo;
+            retornoLeituraMultipla.erro.ENIPStatusErro.descricao = ENIPResposta.getStatus().mensagem;
+
+            return retornoLeituraMultipla;
+        }
 
         // O comando da resposta deve ser um SendRRData
         if (!ENIPResposta.isSendRRData()) {
@@ -1293,6 +1468,36 @@ export class CompactLogixRockwell {
                     isDemorouResposta: false
                 },
                 /**
+                 * Se o pacote ENIP recebido não é valido
+                 */
+                isENIPInvalido: false,
+                /**
+                 * Se isENIPInvalido, contém os detalhes do erro do pacote ENIP
+                 */
+                ENIPInvalido: {
+                    /**
+                     * Trace de cada etapa do processamento do Buffer do pacote ENIP, conterá onde ocorreu o erro no Buffer
+                     */
+                    trace: []
+                },
+                /**
+                 * Se o pacote ENIP retornou um status de erro
+                 */
+                isENIPStatusErro: false,
+                /**
+                 * Se isENIPStatusErro, contém os detalhes do status invalido
+                 */
+                ENIPStatusErro: {
+                    /**
+                     * Código do erro recebido
+                     */
+                    codigo: undefined,
+                    /**
+                     * Descrição do erro
+                     */
+                    descricao: ''
+                },
+                /**
                  * Se o erro foi causado devido a um erro de status, ou seja os layers estão todos em conformidade, porém o dispositivo retornou um status diferente de sucesso para a operação de leitura da tag
                  */
                 isStatusInvalido: false,
@@ -1702,6 +1907,26 @@ export class CompactLogixRockwell {
         // Se chegou aqui, eu tenho o pacote ENIP de resposta do controlador. Agora preciso verificar se ele retornou sucesso ou não na operação de escrita
         const ENIPResposta = statusEnviaENIP.enipReceber.enipParser;
 
+        // Validar se o pacote ENIP recebido foi validado com sucesso
+        if (!ENIPResposta.isValido().isValido) {
+            retornoEscrita.erro.descricao = `O pacote ENIP recebido não é valido, alguma informação no Buffer está incorreta: ${ENIPResposta.isValido().erro.descricao} `;
+            retornoEscrita.erro.isENIPInvalido = true;
+            retornoEscrita.erro.ENIPInvalido.trace = ENIPResposta.isValido().tracer.getHistoricoOrdenado();
+
+            return retornoEscrita;
+        }
+
+        // Se o pacote ENIP for valido, verificar se seu status retornou sucesso, já que qualquer outro status além de Sucesso não retorna nenhum dado, não teria como continuar
+        if (!ENIPResposta.isStatusSucesso().isSucesso) {
+            retornoEscrita.erro.descricao = `O pacote ENIP retornou um status de erro: ${ENIPResposta.getStatus().codigo} - ${ENIPResposta.getStatus().mensagem}`;
+
+            retornoEscrita.erro.isENIPStatusErro = true;
+            retornoEscrita.erro.ENIPStatusErro.codigo = ENIPResposta.getStatus().codigo;
+            retornoEscrita.erro.ENIPStatusErro.descricao = ENIPResposta.getStatus().mensagem;
+
+            return retornoEscrita;
+        }
+
         // O comando que deve ser retornado é um SendRRData. Na teoria isso nunca deveria cair aqui pq a resposta do ENIP sempre deve corresponder a solicitação original, se enviou um SendRRData, deve receber um SendRRData
         if (!ENIPResposta.isSendRRData()) {
 
@@ -1913,7 +2138,32 @@ export class CompactLogixRockwell {
                 tags: [],
             },
             erro: {
-                descricao: ''
+                descricao: '',
+                /**
+                 * Se o pacote ENIP recebido é invalido
+                 */
+                isENIPInvalido: false,
+                /**
+                 * Se isENIPInvalido, contém os detalhes ocorridos durante o parse do Buffer
+                 */
+                ENIPInvalido: {
+                    /**
+                     * Trace de cada etapa do processamento do Buffer ENIP
+                     * @type {String[]}
+                     */
+                    trace: []
+                },
+                /**
+                 * Se o pacote ENIP recebido não retornou sucesso
+                 */
+                isENIPStatusErro: false,
+                /**
+                 * Se isENIPStatusErro, contém os detalhes do erro ocorrido
+                 */
+                ENIPStatusErro: {
+                    codigo: '',
+                    descricao: ''
+                }
             }
         }
 
@@ -2479,6 +2729,24 @@ export class CompactLogixRockwell {
         // Se chegou aqui, o pacote ENIP foi enviado e recebido com sucesso
         const ENIPResposta = respostaEscritaENIP.enipReceber.enipParser;
 
+        // Validar se o Buffer recebido é valido
+        if (!ENIPResposta.isValido().isValido) {
+            retornoEscrita.erro.descricao = `O pacote ENIP recebido não é valido, alguma informação no Buffer está incorreta: ${ENIPResposta.isValido().erro.descricao}`;
+            retornoEscrita.erro.isENIPInvalido = true;
+            retornoEscrita.erro.ENIPInvalido.trace = ENIPResposta.isValido().tracer.getHistoricoOrdenado();
+            return retornoEscrita;
+        }
+
+        // Ok, se o Buffer for valido, checar se veio com o status de sucesso
+        if (!ENIPResposta.isStatusSucesso().isSucesso) {
+            retornoEscrita.erro.descricao = `O pacote ENIP recebido não retornou com sucesso: ${ENIPResposta.getStatus().codigo} - ${ENIPResposta.getStatus().mensagem}`;
+            retornoEscrita.erro.isENIPStatusErro = true;
+            retornoEscrita.erro.ENIPStatusErro.codigo = ENIPResposta.getStatus().codigo;
+            retornoEscrita.erro.ENIPStatusErro.descricao = ENIPResposta.getStatus().mensagem;
+
+            return retornoEscrita;
+        }
+
         // Se o pacote ENIP não é um SendRRData, então não é o pacote que espero
         if (!ENIPResposta.isSendRRData()) {
             retornoEscrita.erro.descricao = 'O pacote de resposta não é um comando SendRRData';
@@ -2756,7 +3024,7 @@ export class CompactLogixRockwell {
         // Próximos a cada 2 bytes é um ID do atributo.
         // 0x01 0x00 = Atributo 1 = Nome da Tag
         // 0x02 0x00 = Atributo 2 = Tipo de Dado da Tag
-        sondaClasseTags.setCIPGenericData(Buffer.from([0x03, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00]))
+        sondaClasseTags.setCIPGenericData(Buffer.from([0x02, 0x00, 0x01, 0x00, 0x02, 0x00]))
 
         // Configurar o Request Path da Instancia
         // 0x25 = Logical Segment / Type Instance ID / Formato 16 bit
@@ -2808,14 +3076,28 @@ export class CompactLogixRockwell {
             }
 
             // Ok, o envio e recebimento estão oks, verificar se foi retornado a resposta válida
+            let enipLayerParser = respostaENIP.enipReceber.enipParser;
+            if (!enipLayerParser.isValido().isValido) {
+                retornoTags.erro.descricao = `O pacote ENIP recebido não é valido, alguma informação no Buffer está incorreta: ${enipLayerParser.getStatus().codigo} - ${enipLayerParser.getStatus().mensagem}`;
+
+                return retornoTags;
+            }
+            
+            // Validar se o ENIP retornou sucesso
+            if (!enipLayerParser.isStatusSucesso().isSucesso) {
+                retornoTags.erro.descricao = `O pacote ENIP retornou com o status ${enipLayerParser.getStatus().codigo}: ${enipLayerParser.getStatus().mensagem}`;
+
+                return retornoTags;
+            }
 
             // O comando recebido precisa ser o SendRRData
-            if (!respostaENIP.enipReceber.enipParser.isSendRRData()) {
+            if (!enipLayerParser.isSendRRData()) {
                 retornoTags.erro.descricao = 'O pacote de resposta não é um comando SendRRData';
                 return retornoTags;
             }
 
-            const sendRRDataParser = respostaENIP.enipReceber.enipParser.getAsSendRRData();
+            const sendRRDataParser = enipLayerParser.getAsSendRRData();
+
             // Validar se o SendRRData é valido
             if (!sendRRDataParser.isValido().isValido) {
 

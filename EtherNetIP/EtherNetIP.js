@@ -2,7 +2,7 @@ import { Socket } from "net";
 import { EmissorEvento } from "../Utils/EmissorEvento.js";
 
 import { EtherNetIPLayerBuilder } from "./Builder/Layers/EtherNetIP/EtherNetIPBuilder.js";
-import { EtherNetIPLayerParser } from "./Parser/Layers/EtherNetIP/EtherNetIPParser.js";
+import { EtherNetIPLayerParser, Status } from "./Parser/Layers/EtherNetIP/EtherNetIPParser.js";
 
 /**
  * Uma classe auxiliar para tratar com a comunicação para o protocolo EtherNet IP(Industrial Protocol)
@@ -131,6 +131,7 @@ export class EtherNetIPSocket {
      * @param {String} parametros.conexao.ip - Endereço IP
      * @param {Number} parametros.conexao.porta - Porta 
      * @param {Boolean} parametros.isHabilitaLogs - Habilita logs no console
+     * @param {Boolean} parametros.isAutoReconnect - Se deve tentar reconectar automaticamente quando: 1. A conexão TCP cair ou 2. A sessão EtherNet/IP desautenticar por algum motivo
      */
     constructor(parametros) {
         if (parametros == undefined || typeof parametros != 'object') throw new Error('Os parametros de conexão pelo menos devem ser informados');
@@ -138,6 +139,10 @@ export class EtherNetIPSocket {
 
         if (parametros.conexao.ip == undefined) throw new Error('Endereço IP do host não informado');
         if (parametros.conexao.porta == undefined) throw new Error('Porta do host não informada');
+
+        if (parametros.isAutoReconnect) {
+            this.toggleAutoReconnect(true);
+        }
 
         this.#configuracao.ip = parametros.conexao.ip;
         this.#configuracao.porta = parametros.conexao.porta;
@@ -159,9 +164,23 @@ export class EtherNetIPSocket {
 
             if (this.#estado.opcoes.setIntervalIDVerificaConexao == -1) {
                 this.#estado.opcoes.setIntervalIDVerificaConexao = setInterval(() => {
+
+                    // Só deve tentar reconectar SE já foi manualmente informado a tentativa de conectar
+                    if (!this.#estado.conexao.isJaTentouConectar) {
+                        this.log('Reconexão automatica desativada pois ainda não foi tentado conectar manualmente.');
+                        return;
+                    }
+
+                    // Se a conexão TCP não tiver conectada, iniciar
                     if (!this.#estado.conexao.isConectado) {
                         this.log('Reconectando automaticamente...');
                         this.conectar();
+                    }
+
+                    // Se por algum motivo estiver com a sessão desautenticada, tentar autenticar novamente
+                    if (!this.#estado.ethernetIP.autenticacao.isAutenticado && !this.#estado.ethernetIP.autenticacao.isAutenticando && this.#estado.conexao.isConectado) {
+                        this.log('Reautenticando automaticamente...');
+                        this.autenticarENIP();
                     }
                 }, 5000);
             }
@@ -402,6 +421,10 @@ export class EtherNetIPSocket {
          * @property {Boolean} isConectou - Se a conexão foi estabelecida com sucesso
          * @property {Object} erro - Se ocorreu erros na conexão, contém detalhes do erro
          * @property {String} erro.descricao - Descrição do erro generalizado
+         * @property {Boolean} erro.isSemConexao - A conexão com o dispositivo demorou
+         * @property {Boolean} erro.isFalhaAutenticar - A conexão foi TCP foi estabelecida, porém não foi possível autenticar o Register Session
+         * @property {Boolean} erro.isJaAutenticando - Já existe uma solicitação de autenticação pendente
+         * @property {Boolean} erro.isDispositivoRecusou - O dispositivo recusou a conexão
          */
 
         /**
@@ -410,15 +433,30 @@ export class EtherNetIPSocket {
         const retornoConexao = {
             isConectou: false,
             erro: {
-                descricao: ''
+                descricao: '',
+                isFalhaAutenticar: false,
+                isSemConexao: false,
+                isDispositivoRecusou: false,
+                isJaAutenticando: false
             }
         }
 
         let resolvePromise = undefined;
 
+        // Se já tiver um Socket conectado, remover ele
+        if (this.#estado.conexao.isConectado) {
+
+            if (this.#estado.ethernetIP.autenticacao.isAutenticado) {
+                await this.desautenticarENIP();
+            }
+
+            await this.desconectar();
+        }
+
         // Se já estiver tentando conectar
         if (this.#estado.conexao.isConectando) {
             retornoConexao.erro.descricao = 'Já existe uma tentativa de conexão pendente ativa.';
+            retornoConexao.erro.isJaAutenticando = true;
 
             this.log('Solicitado tentativa de iniciar conexão porém já existe uma tentativa de conexão pendente.');
             return retornoConexao;
@@ -433,6 +471,10 @@ export class EtherNetIPSocket {
         this.#estado.conexao.isJaTentouConectar = true;
         this.#estado.conexao.detalhesErro.descricao = '';
 
+        this.#estado.ethernetIP.autenticacao.isAutenticado = false;
+        this.#estado.ethernetIP.autenticacao.isAutenticando = false;
+        this.#estado.ethernetIP.autenticacao.sessionHandlerID = 0;
+
         const novoSocket = new Socket()
         this.#estado.socket = novoSocket;
 
@@ -446,7 +488,22 @@ export class EtherNetIPSocket {
         })
 
         novoSocket.on('error', (erro) => {
-            retornoConexao.erro.descricao = erro.message;
+            switch (erro.code) {
+                case 'ETIMEDOUT': {
+                    retornoConexao.erro.descricao = 'Tempo de conexão com o dispositivo expirou.';
+                    retornoConexao.erro.isSemConexao = true;
+                    break;
+                }
+                case 'ECONNREFUSED': {
+                    retornoConexao.erro.descricao = 'O dispositivo recusou a conexão.';
+                    retornoConexao.erro.isDispositivoRecusou = true;
+                    break;
+                }
+                default: {
+                    retornoConexao.erro.descricao = erro.message;
+                    break;
+                }
+            }
             this.#onConexaoErro(erro);
         })
 
@@ -457,7 +514,7 @@ export class EtherNetIPSocket {
             if (retornoAutentica.isAutenticou) {
                 retornoConexao.isConectou = true;
             } else {
-                retornoConexao.erro.descricao = `Erro em autenticar com o dispositivo: ${retornoAutentica.erro.descricao}`;
+                retornoConexao.erro.descricao = `${retornoAutentica.erro.descricao}`;
             }
 
             resolvePromise(retornoConexao)
@@ -472,9 +529,11 @@ export class EtherNetIPSocket {
     }
 
     /**
-     * Desconecta com o dispositivo EtherNet/IP
+     * Desconecta com o dispositivo EtherNet/IP. É enviado a solicitação de UnRegisterSession e depois é destruido o Socket.
      */
-    desconectar() {
+    async desconectar() {
+        await this.desautenticarENIP();
+
         this.#estado.opcoes.desconectadoManualmente = true;
         this.#estado.socket.destroy();
     }
@@ -498,7 +557,11 @@ export class EtherNetIPSocket {
                 sessionHandlerID: undefined
             },
             erro: {
-                descricao: ''
+                descricao: '',
+                /**
+                 * Se já está autenticado
+                 */
+                isJaAutenticado: false
             }
         }
 
@@ -507,6 +570,15 @@ export class EtherNetIPSocket {
             detalhesAutentica.erro.descricao = 'Já existe uma solicitação de autenticação pendente.';
 
             this.log('Solicitado autenticação porém já existe uma solicitação de autenticação pendente.');
+            return detalhesAutentica;
+        }
+
+        // Se já estiver conectado, não precisa autenticar
+        if (this.#estado.ethernetIP.autenticacao.isAutenticado) {
+            detalhesAutentica.erro.descricao = 'Já está autenticado com o dispositivo EtherNet/IP.';
+            detalhesAutentica.erro.isJaAutenticado = true;
+
+            this.log('Solicitado autenticação porém já está autenticado.');
             return detalhesAutentica;
         }
 
@@ -573,10 +645,11 @@ export class EtherNetIPSocket {
         // Validar se o ENIP retornou sucesso
         if (!ENIPResposta.isStatusSucesso().isSucesso) {
 
-            // Ele retorna status de erro 1 se for tentar autenticar novamente, mesmo já estando autenticado
+            // Ele retorna status de erro 1 se for tentar autenticar novamente, mesmo já estando autenticado. Apesar que eu verifico ali em cima antes se já ta conectado, mas é uma redundância, vai que né..
             if (ENIPResposta.getStatus().codigo == 1) {
                 detalhesAutentica.erro.descricao = `Já existe uma sessão autenticada com o dispositivo EtherNet/IP.`;
-            } else {   
+                detalhesAutentica.erro.isJaAutenticado = true;
+            } else {
                 detalhesAutentica.erro.descricao = `O pacote EtherNet/IP do comando RegisterSession retornou um erro: ${ENIPResposta.isStatusSucesso().erro.descricao}`;
             }
 
@@ -598,6 +671,53 @@ export class EtherNetIPSocket {
         this.#estado.emissorEvento.disparaEvento('autenticado');
 
         return detalhesAutentica;
+    }
+
+    /**
+     * Enviar a solicitação de UnRegisterSession com o Session Handler atual
+     */
+    async desautenticarENIP() {
+        const detalhesDesautentica = {
+            /**
+             * Se foi possível desautenticar
+             */
+            isDesautenticou: false,
+            /**
+             * Se não foi possível desautenticar, contém detalhes do erro
+             */
+            erro: {
+                descricao: ''
+            }
+        }
+
+        // Preparar o pacote ENIP
+        const layerENIP = this.getNovoLayerBuilder();
+        layerENIP.buildUnRegisterSession();
+
+        // Enviar o pacote ENIP
+        let statusEnviaENIP = await this.enviarENIP(layerENIP);
+
+        if (!statusEnviaENIP.isSucesso) {
+
+            if (!statusEnviaENIP.enipEnviar.isEnviou) {
+                detalhesDesautentica.erro.descricao = `Ocorreu um erro ao enviar o pacote EtherNet/IP do comando UnRegisterSession: ${statusEnviaENIP.enipEnviar.erro.descricao}`;
+                return detalhesDesautentica;
+            }
+
+            // Não preciso checar o recebimento pois não é devolvido uma resposta do UnRegisterSession. Na teoria nunca deve cair aqui e somete no if acima
+            detalhesDesautentica.erro.descricao = `Ocorreu um erro desconhecido ao desautenticar`;
+            return detalhesDesautentica;
+        }
+
+        // Se o pacote foi enviado com sucesso, então foi desautenticado
+        detalhesDesautentica.isDesautenticou = true;
+        this.log(`Desautenticado com sucesso com o dispositivo EtherNet/IP com o Session Handler ${this.#estado.ethernetIP.autenticacao.sessionHandlerID}`);
+
+        this.#estado.ethernetIP.autenticacao.isAutenticado = false;
+        this.#estado.ethernetIP.autenticacao.sessionHandlerID = 0;
+        this.#estado.emissorEvento.disparaEvento('desautenticado');
+
+        return detalhesDesautentica;
     }
 
     /**
@@ -687,9 +807,18 @@ export class EtherNetIPSocket {
 
     /**
      * Adicionar um callback para quando a autenticação RegisterSession for estabelecida
+     * @param {*} cb - Callback que será executado
      */
-    onAutenticado() {
+    onAutenticado(cb) {
         return this.#estado.emissorEvento.addEvento('autenticado', cb);
+    }
+
+    /**
+     * Adicionar um callback para quando a desautenticação UnRegisterSession for executada
+     * @param {*} cb - Callback que será executado
+     */
+    onDesautenticado(cb) {
+        return this.#estado.emissorEvento.addEvento('desautenticado', cb);
     }
 
     /**
@@ -810,6 +939,13 @@ export class EtherNetIPSocket {
         const enipDigitoAleatorio = enipIDUnicoStr.substring(8);
 
         this.log(`Recebido um pacote EtherNet/IP com ENIP ID: ${enipIDUnico}`);
+
+        // Dar uma validada no pacote ENIP recebido se por acaso o erro for devido ao Session Handle invalido
+        if (etherNetIPParser.isValido().isValido) {
+            if (etherNetIPParser.getStatus().codigo == Status.InvalidSessionHandle.hex) {
+                this.#estado.ethernetIP.autenticacao.isAutenticado = false;
+            }
+        }
 
         // Emitir o evento que esse pacote foi recebido para quem quiser
         this.#estado.emissorEvento.disparaEvento(`novo_pacote_enip:${enipIDUnico}`, etherNetIPParser, {
