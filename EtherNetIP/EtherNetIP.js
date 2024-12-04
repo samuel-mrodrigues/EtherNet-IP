@@ -253,14 +253,20 @@ export class EtherNetIPSocket {
                 isEnviou: false,
                 enipBuilder: undefined,
                 erro: {
-                    descricao: ''
+                    descricao: '',
+                    erroGerarBuffer: {
+                        traceLog: []
+                    },
+                    isGerarBuffer: false,
+                    isWriteSocket: false
                 },
             },
             enipReceber: {
                 isRecebeu: false,
                 enipParser: undefined,
                 erro: {
-                    descricao: ''
+                    descricao: '',
+                    isDemorouResposta: false
                 },
             },
             enipDetalhes: {
@@ -891,6 +897,12 @@ export class EtherNetIPSocket {
         // As vezes pode ocorrer de eu receber mais de um pacote ENIP no mesmo buffer quando o dispositivo remoto recebe muitas solicitações em pouco tempo, então ele manda junto pra economizar recursos.
         // Vou validar o próximos 2 bytes a partir do offset 2 do Buffer que se for um EtherNet IP válido, vai conter o tamanho em bytes de todo o pacote ENIP, e ai eu corto do offset 0 até o seu tamanho final
         let possivelBytesPayloadDoENIP = buffer.readUInt16LE(2);
+
+        // Se o tamanho do pacote for um valor nada haver muito grande, descarto a possibilidade dele ser um pacote ENIP
+        if (possivelBytesPayloadDoENIP >= 800) {
+            this.log(`Recebido um pacote EtherNet/IP inválido: Tamanho do pacote maior que 800 bytes, descartando...`);
+            return;
+        }
 
         // O tamanho total do Buffer passado no evento deve corresponder ao tamanho do payload ENIP + o cabeçalho do EtherNet/IP, que é composto por:
         // 2 bytes do comando

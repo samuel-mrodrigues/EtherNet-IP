@@ -1,6 +1,9 @@
-import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
-import { hexDeBuffer } from "../../../../../../../../Utils/Utils.js";
+import { TraceLog } from "../../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../../../../../Utils/Utils.js";
 
+/**
+ * O serviço customizavél permite criar um serviço customizado para ser solicitado ao dispositivo remoto.
+ */
 export class ServicoCustomizavelBuilder {
     /**
      * Campos necessarios para o serviço customizado

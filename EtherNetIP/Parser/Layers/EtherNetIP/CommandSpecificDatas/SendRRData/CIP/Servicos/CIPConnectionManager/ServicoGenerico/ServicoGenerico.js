@@ -1,14 +1,15 @@
-import { CIPGeneralStatusCodes, getStatusCode } from "../../../../../../../Utils/CIPRespondeCodes.js";
-import { TraceLog } from "../../../../../../../Utils/TraceLog.js";
-import { hexDeBuffer, numeroToHex } from "../../../../../../../Utils/Utils.js";
+import { CIPGeneralStatusCodes, getStatusCode } from "../../../../../../../../../Utils/CIPRespondeCodes.js";
+import { TraceLog } from "../../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../../../../Utils/Utils.js";
 
 /**
- * A classe SingleServicePacket é responsavél por dar parse num Buffer de Serviço unico
+ * O serviço de classe generico da parse em outros serviços que não são os pre-configurados como SingleServicePacket ou MultipleServicePacket
  */
-export class SingleServicePacketParser {
+export class ServicoGenericoParser {
+
 
     /**
-     * Se esse SingleServicePacket é valido
+     * Se esse ServicoGenerico é valido
      ** Esse campo indica se os bytes recebidos são validos e encaixam com o que é esperado. Mensagens de buffers retornadas com erro devido ao mal uso da classe ainda são consideradas válidas. Esse campo apenas indica se
      houver algum erro ao dar parse no buffer.
      */
@@ -33,23 +34,21 @@ export class SingleServicePacketParser {
          */
         codigoStatus: undefined,
         /**
-         * Opcionalmente, um additional status de 2 bytes pode ser retornado, dependendo do código de status retornado.
-         * @type {Buffer}
-         */
-        additionalStatus: undefined,
-        /**
-         * Geralmente, SingleServicePacket retorna um CIP Class Generic, com o Command Specific Data do que foi solicitado.
+         * Qualquer conteudo extra que contém no CIP Generic Data
          * @type {Buffer}
          */
         commandSpecificData: undefined
     }
 
+
     /**
-     * Instanciar o parser
-     * @param {Buffer} buffer - Buffer com os dados do layer CIP para dar parse
+     *  Instanciar o parser
+     * @param {Buffer} buff - Buffer com os dados do layer CIP para dar parse
      */
-    constructor(buffer) {
-        if (buffer != undefined) this.parseBuffer(buffer);
+    constructor(buff) {
+        if (buff != undefined) this.parseBuffer(buff);
+
+        return this;
     }
 
     /**
@@ -69,10 +68,9 @@ export class SingleServicePacketParser {
         }
 
         this.#statusServico.tracer = retBuff.tracer;
+        const tracerBuffer = retBuff.tracer.addTipo(`ServicoGenerico Parser`);
 
-        const tracerBuffer = retBuff.tracer.addTipo(`SingleServicePacket Parser`);
-
-        tracerBuffer.add(`Iniciando parser do SingleServicePacket com o Buffer: ${hexDeBuffer(buff)}, ${buff.length} bytes`);
+        tracerBuffer.add(`Iniciando parser do ServicoGenerico com o Buffer: ${hexDeBuffer(buff)}, ${buff.length} bytes`);
 
         // Precisa ser pelo menos 2 bytes que é o codigo de status
         if (buff.length < 1) {
@@ -88,15 +86,8 @@ export class SingleServicePacketParser {
         // Primeiro 1 bytes é o codigo de status
         this.#campos.codigoStatus = buff.readUInt8(0);
 
-        // Próximo 1 byte é o additional status size em WORDS
-        let additionalStatusEmWords = buff.readUInt8(1);
-
-        // Se o tamanho em Words do Additional Status for maior que 0, então tem mais dados depois do status
-        if (additionalStatusEmWords > 0) {
-            let additionalStatusBuffer = buff.subarray(2, 4);
-
-            this.#campos.additionalStatus = additionalStatusBuffer;
-        }
+        // Próximo 1 byte é o additional status size em WORDS que na maioria pelo que vi sempre é 0
+        // let additionalStatusEmWords = buff.readUInt8(1);
 
         // Validar se o status devolvido é valido
         let getStatusSinglePacket = getStatusCode(this.#campos.codigoStatus);
@@ -119,13 +110,15 @@ export class SingleServicePacketParser {
 
         tracerBuffer.add(`O Buffer do Command Specific Data do Single Service Packet é: ${hexDeBuffer(this.#campos.commandSpecificData)}, ${this.#campos.commandSpecificData.length} bytes`);
 
-        tracerBuffer.add(`Parser do SingleServicePacket finalizado.`);
+        tracerBuffer.add(`Parser do ServicoGenerico finalizado.`);
+        
         retBuff.isSucesso = true;
+
         return retBuff;
     }
 
     /**
-     * Retorna se esse SingleServicePacket é valido, ou seja todos os campos foram corretamente parseados do Buffer.
+     * Retorna se esse ServicoGenerico é valido, ou seja todos os campos foram corretamente parseados do Buffer.
      */
     isValido() {
         const retValido = {
@@ -152,7 +145,7 @@ export class SingleServicePacketParser {
     }
 
     /**
-     * Retorna o status de esse SingleServicePacket obteve sucesso na sua solicitação
+     * Retorna o status de esse ServicoGenerico obteve sucesso na sua solicitação
      ** Lembre-se de validar se o comando é valido antes de chamar esse método
      */
     isStatusSucesso() {
@@ -167,6 +160,7 @@ export class SingleServicePacketParser {
                 descricaoStatus: ''
             }
         }
+
 
         const statusAtual = this.getStatus();
         if (statusAtual.codigoStatus == CIPGeneralStatusCodes.Success.hex) {
@@ -191,12 +185,6 @@ export class SingleServicePacketParser {
              */
             codigoStatus: this.#campos.codigoStatus,
             /**
-             * O additional status code de 2 bytes, que pode ser undefined ou não dependendo do código de status
-             */
-            additionalStatusCode: {
-                buffer: this.#campos.additionalStatus,
-            },
-            /**
              * Descrição do código de status do serviço solicitado
              */
             descricaoStatus: ''
@@ -206,7 +194,7 @@ export class SingleServicePacketParser {
         if (status != undefined) {
             retornoCodigo.descricaoStatus = status.descricao;
         } else {
-            retornoCodigo.descricaoStatus = `Código de status do Single Service Packet recebido: '${this.#campos.codigoStatus}' não é um código de status válido. `;
+            retornoCodigo.descricaoStatus = `Código de status do Serviço Generico recebido: '${this.#campos.codigoStatus}' não é um código de status válido. `;
         }
 
         return retornoCodigo;
@@ -215,7 +203,7 @@ export class SingleServicePacketParser {
     /**
      * Retorna inteiramente o Buffer retornado do Command Specific Data
      */
-    getAsCIPClassCommandSpecificData() {
+    getCIPClassCommandSpecificData() {
         return this.#campos.commandSpecificData;
     }
 }

@@ -1,3 +1,7 @@
+import { TraceLog } from "../../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer } from "../../../../../../../../../Utils/Utils.js";
+import { SingleServicePacketServiceBuilder } from "../SingleServicePacket/SingleServicePacket.js";
+
 /**
  * O Multiple Service Packet permite enviar varios serviços em um unico pacote para receber de uma vez a resposta
  * Ele segue o seguinte padrão:
@@ -40,10 +44,6 @@
         CIP Class Generic
 
  */
-
-import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
-import { hexDeBuffer } from "../../../../../../../../Utils/Utils.js";
-import { SingleServicePacketServiceBuilder } from "../SingleServicePacket/SingleServicePacket.js";
 
 /**
  * @typedef SingleServicePacket

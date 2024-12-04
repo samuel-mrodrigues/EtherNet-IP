@@ -9,7 +9,7 @@
 
 import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
 import { hexDeBuffer, numeroToHex } from "../../../../../../../../Utils/Utils.js";
-import { CIPSendRRDataBuilder } from "../../CIP.js";
+import { CIPEmbeddedBuilder } from "./CIPEmbedded.js";
 
 /**
  * Esse Layer vem após o layer CIP se o comando CIP utiliza o SendRRData(unconnected message) com a classe solicitada do Connection Manager
@@ -81,7 +81,7 @@ export class CIPConnectionManagerBuilder {
         CIPEmbeddedMessage: {
             /**
              * O pacote CIP contém o serviço solicitado ao dispositivo
-             * @type {CIPSendRRDataBuilder}
+             * @type {CIPEmbeddedBuilder}
              */
             CIPServicoSolicitado: undefined
         }
@@ -201,7 +201,7 @@ export class CIPConnectionManagerBuilder {
      * Cria e instancia o serviço que será solicitado ao dispositivo remoto. Esse serviço pode ser pra ler tags, informações e qualquer outra classe que o dispositivo remoto suportar
      */
     getCIPMessage() {
-        let novoCIP = new CIPSendRRDataBuilder();
+        let novoCIP = new CIPEmbeddedBuilder();
 
         this.#campos.CIPEmbeddedMessage.CIPServicoSolicitado = novoCIP;
         return novoCIP;

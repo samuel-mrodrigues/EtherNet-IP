@@ -1,5 +1,5 @@
-import { TraceLog } from "../../../../../../../../Utils/TraceLog.js";
-import { hexDeBuffer, numeroToHex } from "../../../../../../../../Utils/Utils.js";
+import { TraceLog } from "../../../../../../../../../Utils/TraceLog.js";
+import { hexDeBuffer, numeroToHex } from "../../../../../../../../../Utils/Utils.js";
 
 /**
  * O Single Service Packet é usado para solicitar o Request Path para um recurso especifico, como uma tag do dispositivo remoto com a descrição.

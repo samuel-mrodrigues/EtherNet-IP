@@ -1,7 +1,7 @@
-import { SingleServicePacketServiceBuilder } from "../../EtherNetIP/Builder/Layers/EtherNetIP/CommandSpecificDatas/SendRRData/CIP/Servicos/SingleServicePacket/SingleServicePacket.js";
-import { CIPGeneralStatusCodes } from "../../EtherNetIP/Utils/CIPRespondeCodes.js";
-import { EtherNetIPSocket } from "../../EtherNetIP/EtherNetIP.js";
-import { EmissorEvento } from "../../Utils/EmissorEvento.js";
+import { CIPGeneralStatusCodes } from "../../../EtherNetIP/Utils/CIPRespondeCodes.js";
+import { EtherNetIPSocket } from "../../../EtherNetIP/EtherNetIP.js";
+import { EmissorEvento } from "../../../Utils/EmissorEvento.js";
+import { SingleServicePacketServiceBuilder } from "../../../EtherNetIP/Builder/Layers/EtherNetIP/CommandSpecificDatas/SendRRData/CIP/Servicos/CIPConnectionManager/SingleServicePacket/SingleServicePacket.js";
 
 
 /**
@@ -154,8 +154,7 @@ export class CompactLogixRockwell {
      * @param {Object} parametros
      * @param {String} parametros.ip - Endereço IP do controlador CompactLogix
      * @param {Number} parametros.porta - Porta de comunicação com o controlador CompactLogix
-     * @param {Boolean} parametros.habilitaLogsEtherNetIP - Se os logs do gerenciador de EtherNetIP devem ser mostrados
-     * @param {Boolean} parametros.habilitarLogsCompactLogix - Se os logs desse CompactLogix devem ser mostrados
+     * @param {Boolean} parametros.habilitaLogs - Se os logs devem ser exibidos no console
      * @param {Boolean} parametros.autoReconectar - Se deve tentar reconectar automaticamente em caso de: 1 - Perda de conexão com o controlador, 2 - Desautenticação com o dispositivo por algum motivo(acho raro acontecer '-')
      */
     constructor(parametros) {
@@ -166,22 +165,23 @@ export class CompactLogixRockwell {
         this.#configuracao.ip = parametros.ip;
         this.#configuracao.porta = parametros.porta;
 
-        let isHabilitaLogsEtherNet = false;
-        let isHabilitaLogsCompactLogix = false;
-        if (parametros != undefined) {
-            if (parametros.habilitaLogsEtherNetIP) isHabilitaLogsEtherNet = true;
-            if (parametros.habilitarLogsCompactLogix) isHabilitaLogsCompactLogix = true;
-        }
+        let isHabLogs = false;
+        if (parametros.habilitaLogs) isHabLogs = true;
 
-        this.#configuracao.logs.habilitarLogsConsole = isHabilitaLogsCompactLogix;
+
+        this.#configuracao.logs.habilitarLogsConsole = isHabLogs;
 
         this.#ENIPSocket = new EtherNetIPSocket({
-            isHabilitaLogs: isHabilitaLogsEtherNet,
+            isHabilitaLogs: false,
             conexao: {
                 ip: this.#configuracao.ip,
                 porta: this.#configuracao.porta
             },
             isAutoReconnect: parametros.autoReconectar
+        });
+
+        this.#ENIPSocket.onLog((msgLog) => {
+            this.log(msgLog);
         });
     }
 
@@ -666,9 +666,20 @@ export class CompactLogixRockwell {
             return retornoTag;
         }
 
+        const CIPConnectionManager = ENIPCIP.getAsConnectionManager();
+        if (!CIPConnectionManager.isValido().isValido) {
+
+            retornoTag.erro.descricao = `O pacote CIP Connection Manager não é valido, alguma informação no Buffer está incorreta: ${CIPConnectionManager.isValido().erro.descricao}`;
+            retornoTag.erro.isErroLayers = true;
+            retornoTag.erro.erroLayers.isCIPInvalido = true;
+            retornoTag.erro.erroLayers.CIPInvalido.trace = CIPConnectionManager.isValido().tracer.getHistoricoOrdenado();
+
+            return retornoTag;
+        }
+
         // Por último, o pacote CIP deve encapsular o Single Service Packet que foi a informação da tag requisitada
 
-        if (!ENIPCIP.isSingleServicePacket()) {
+        if (!CIPConnectionManager.isSingleServicePacket()) {
             retornoTag.erro.descricao = 'O pacote de resposta não contém um Single Service Packet';
 
             retornoTag.erro.isErroLayers = true;
@@ -676,7 +687,7 @@ export class CompactLogixRockwell {
 
             return retornoTag;
         }
-        const ENIPSingleService = ENIPCIP.getAsSingleServicePacket();
+        const ENIPSingleService = CIPConnectionManager.getAsSingleServicePacket();
 
         // Validar se é deu pra dar parse no Buffer sem erros.
         if (!ENIPSingleService.isValido().isValido) {
@@ -1040,16 +1051,24 @@ export class CompactLogixRockwell {
             }
         }
 
+        // Esperado que o conteudo do CIP seja uma resposta de uma solicitação Connection Manager
+        const CIPConnectionManager = ENIPCIP.getAsConnectionManager();
+        if (!CIPConnectionManager.isValido().isValido) {
+            retornoLeituraMultipla.erro.descricao = `O pacote CIP Connection Manager não é valido, alguma informação no Buffer está incorreta: ${CIPConnectionManager.isValido().erro.descricao}`;
+
+            return retornoLeitura
+        }
+
         // Ok, validado o código de status do CIP, agora devo ter um Multiple Service Packet encapsulado com os dados de cada Single Service
 
-        if (!ENIPCIP.isMultipleServicePacket()) {
+        if (!CIPConnectionManager.isMultipleServicePacket()) {
             retornoLeituraMultipla.erro.descricao = 'O pacote de resposta não contém um Multiple Service Packet';
 
             return retornoLeituraMultipla;
         }
 
         // Obter o Multiple Service Packet com as informações dos serviços solicitados
-        const ENIPMultipleService = ENIPCIP.getAsMultipleServicePacket();
+        const ENIPMultipleService = CIPConnectionManager.getAsMultipleServicePacket();
         if (!ENIPMultipleService.isValido().isValido) {
             retornoLeituraMultipla.erro.descricao = `O pacote Multiple Service Packet não é valido, alguma informação no Buffer está incorreta: ${ENIPMultipleService.isValido().erro.descricao}`;
 
@@ -1174,8 +1193,17 @@ export class CompactLogixRockwell {
                 continue;
             }
 
+            // O Single Service Packet é contido dentro do Connection Manager
+            const CIPConnectionManager = CIPPacket.getAsConnectionManager();
+            if (!CIPConnectionManager.isValido().isValido) {
+                possivelTagSolicitada.erro.descricao = `O pacote CIP Connection Manager não é valido, alguma informação no Buffer está incorreta: ${CIPConnectionManager.isValido().erro.descricao}`;
+                possivelTagSolicitada.erro.isCIPInvalido = true;
+                possivelTagSolicitada.erro.CIPInvalido.trace = CIPConnectionManager.isValido().tracer.getHistoricoOrdenado();
+                continue;
+            }
+
             // É pra ser um Single Service Packet com os dados da tag lida
-            if (!CIPPacket.isSingleServicePacket()) {
+            if (!CIPConnectionManager.isSingleServicePacket()) {
 
                 possivelTagSolicitada.erro.descricao = 'O pacote de resposta não contém um Single Service Packet';
                 possivelTagSolicitada.erro.isSingleServicePacketNaoRetornado = true;
@@ -1183,7 +1211,7 @@ export class CompactLogixRockwell {
             }
 
             // Se for valido e for um Single Service Packet, analisar as informações da tag lida
-            const singleServicePacket = CIPPacket.getAsSingleServicePacket();
+            const singleServicePacket = CIPConnectionManager.getAsSingleServicePacket();
 
             // Validar se o Buffer do Single Service Packet é valido
             if (!singleServicePacket.isValido().isValido) {
@@ -1977,8 +2005,21 @@ export class CompactLogixRockwell {
             return retornoEscrita;
         }
 
+        // Como foi uma solicitação via Connection Manager, buildo o Connection Manager pra pegar o Single Service Packet
+        const CIPConnectionManager = ENIPCIP.getAsConnectionManager();
+        if (!CIPConnectionManager.isValido().isValido) {
+
+            retornoEscrita.erro.descricao = `O pacote Connection Manager não é valido, alguma informação no Buffer está incorreta: ${CIPConnectionManager.isValido().erro.descricao} `;
+            retornoEscrita.erro.isErroLayers = true;
+            retornoEscrita.erro.erroLayers.isCIPInvalido = true;
+            retornoEscrita.erro.erroLayers.CIPInvalido.trace = CIPConnectionManager.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
+            return retornoEscrita
+        }
+
         // Por último, o pacote CIP deve encapsular o Single Service Packet que foi a informação da tag escrita
-        if (!ENIPCIP.isSingleServicePacket()) {
+        if (!CIPConnectionManager.isSingleServicePacket()) {
             retornoEscrita.erro.descricao = 'O pacote de resposta não contém um Single Service Packet';
 
             retornoEscrita.erro.isErroLayers = true;
@@ -1988,7 +2029,7 @@ export class CompactLogixRockwell {
             return retornoEscrita;
         }
 
-        const ENIPSingleService = ENIPCIP.getAsSingleServicePacket();
+        const ENIPSingleService = CIPConnectionManager.getAsSingleServicePacket();
 
         // Validar se é deu pra dar parse no Buffer sem erros.
         if (!ENIPSingleService.isValido().isValido) {
@@ -2809,15 +2850,23 @@ export class CompactLogixRockwell {
             }
         }
 
+        // Validar se foi retornado a resposta correspodente a um CIP Connection Manager
+        const CIPConnectionManager = ENIPCIP.getAsConnectionManager();
+        if (!CIPConnectionManager.isValido().isValido) {
+
+            retornoEscrita.erro.descricao = `O pacote CIP Connection Manager não é valido, alguma informação no Buffer está incorreta: ${CIPConnectionManager.isValido().erro.descricao}. Trace log: ${CIPConnectionManager.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
+            return retornoEscrita;
+        }
+
         // Validado o status do CIP, obrigatoriamente o retorno precisa ser um serviço Multiple Service Packet com o retorno de status das escritas
-        if (!ENIPCIP.isMultipleServicePacket()) {
+        if (!CIPConnectionManager.isMultipleServicePacket()) {
 
             retornoEscrita.erro.descricao = 'O pacote de resposta não contém um Multiple Service Packet';
             return retornoEscrita;
         }
 
         // Obter o Multiple Service Packet que contém as informações das escritas das tags
-        const ENIPMultipleService = ENIPCIP.getAsMultipleServicePacket();
+        const ENIPMultipleService = CIPConnectionManager.getAsMultipleServicePacket();
         if (!ENIPMultipleService.isValido().isValido) {
             retornoEscrita.erro.descricao = `O pacote Multiple Service Packet não é valido, alguma informação no Buffer está incorreta: ${ENIPMultipleService.isValido().erro.descricao}. Trace log: ${ENIPMultipleService.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;
 
@@ -2838,7 +2887,7 @@ export class CompactLogixRockwell {
             // Se não estiver em ordem então o universo não faz sentido
             if (tagEscritaSolicitada == undefined) continue;
 
-            // Validar se o Service Packet é valido
+            // Validar se o CIP recebido foi validado
             if (!CIPPacket.isValido().isValido) {
 
                 tagEscritaSolicitada.tagObjeto.erro.descricao = `O pacote CIP não é valido, alguma informação no Buffer está incorreta: ${CIPPacket.isValido().erro.descricao}`;
@@ -2848,8 +2897,18 @@ export class CompactLogixRockwell {
                 continue;
             }
 
+            // O CIP Connection Manager contém o Single Service Packet
+            const CIPConnectionManager = CIPPacket.getAsConnectionManager();
+            if (!CIPConnectionManager.isValido().isValido) {
+                tagEscritaSolicitada.tagObjeto.erro.descricao = `O pacote CIP Connection Manager não é valido, alguma informação no Buffer está incorreta: ${CIPConnectionManager.isValido().erro.descricao}`;
+                tagEscritaSolicitada.tagObjeto.erro.isCIPInvalido = true;
+                tagEscritaSolicitada.tagObjeto.erro.CIPInvalido.trace = CIPConnectionManager.isValido().tracer.getHistoricoOrdenado();
+
+                continue;
+            }
+
             // O CIP é pra conter somente um Single Service Packet com o status da escrita da tag
-            if (!CIPPacket.isSingleServicePacket()) {
+            if (!CIPConnectionManager.isSingleServicePacket()) {
 
                 tagEscritaSolicitada.tagObjeto.erro.descricao = `O pacote de resposta não contém um SIngle Service Packet`
                 tagEscritaSolicitada.tagObjeto.erro.isSingleServicePacketNaoRetornado = true;
@@ -2858,7 +2917,7 @@ export class CompactLogixRockwell {
             }
 
             // Obter o Single Service Packet que contém o status da escrita da tag
-            const singleServicePacket = CIPPacket.getAsSingleServicePacket();
+            const singleServicePacket = CIPConnectionManager.getAsSingleServicePacket();
 
             // Validar se o Single Service Packet é valido
             if (!singleServicePacket.isValido().isValido) {
@@ -3082,7 +3141,7 @@ export class CompactLogixRockwell {
 
                 return retornoTags;
             }
-            
+
             // Validar se o ENIP retornou sucesso
             if (!enipLayerParser.isStatusSucesso().isSucesso) {
                 retornoTags.erro.descricao = `O pacote ENIP retornou com o status ${enipLayerParser.getStatus().codigo}: ${enipLayerParser.getStatus().mensagem}`;
