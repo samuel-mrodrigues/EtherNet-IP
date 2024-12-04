@@ -6,6 +6,9 @@ Outras bibliotecas de EtherNet/IP até fazem a mesma função porém de forma ba
 Não tenho certeza ainda pois só cheguei a implementar um tipo de comunicação até o momento com um controlador CompactLogix da RockWell, mas pelas minhas pesquisas, de forma geral todos os dispositivos que suportam o protocolo CIP possuem até um certo nivel de padrão onde todos devem seguir, e depois disso vem os detalhes especificos que mudam dependendo da fabricante do CLP. Por exemplo, a forma de escrever um valor em um controlador X é diferente no controlador Y. Utilizando a classe EtherNet/IP contida no projeto, é possível customizar livremente todas as informações de um comando CIP para que ele fique compatível com o dispositivo que você deseja se comunicar.
 
 Na pasta Controladores tem uma classe pronta que usa o EtherNet/IP para se comunicar com um CompactLogix. Assim como eu fiz dessa forma, é possível criar outras classes para outros tipos de dispositivos usando como base o EtherNet/IP, você só precisa saber como montar o payload corretamente.
+# Protocolos Suportados
+
+
 # Como usar
 ## EtherNet/IP
 A classe do EtherNet/IP utiliza o Builder(Monta o pacote de Buffer que vai ser enviado ao dispositivo) e o Parser(Recebe o Buffer e organiza a informação sem muita dor de cabeça). 
@@ -18,7 +21,7 @@ import { EtherNetIPSocket } from "../EtherNetIP/EtherNetIP.js";
     const connEthernetIP = new EtherNetIPSocket({
         conexao: {
             ip: '192.168.3.120',
-            porta: 44818
+            porta: 44818,
         },
         isHabilitaLogs: true
     })
@@ -193,8 +196,7 @@ A classe CompactLogix implementa o uso da classe EtherNet/IP pra tratar os pacot
     const compactLogix = new CompactLogixRockwell({
         ip: '192.168.3.120',
         porta: 44818,
-        habilitaLogsEtherNetIP: true,
-        habilitarLogsCompactLogix: true,
+        habilitaLogs: true,
         autoReconectar: true
     })
 
