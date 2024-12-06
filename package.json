@@ -1,10 +1,17 @@
 {
   "name": "wow-another-ethernet-ip",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.js",
   "description": "Uma biblioteca para comunicação com dispositivos com o protocolo CIP via Ethernet/IP",
   "type": "module",
-  "keywords": ["ethernetip", "cip", "cip pcccc", "allen-bradley CIP", "rockwell CIP", "ethernet/ip"],
+  "keywords": [
+    "ethernetip",
+    "cip",
+    "cip pcccc",
+    "allen-bradley CIP",
+    "rockwell CIP",
+    "ethernet/ip"
+  ],
   "author": "Samuel Machado Rodrigues",
   "repository": {
     "type": "git",
