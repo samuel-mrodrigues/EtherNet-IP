@@ -42,106 +42,6 @@ export class CompactLogixRockwell {
      * @property {Number} tamanho - Tamanho total da string em bytes
      */
 
-
-    #dataTypes = {
-        /**
-         * Tipos de DataTypes atomicos(numeros) suportados
-         * Contém o código do tipo de dado, a descrição e o tamanho em bytes
-         */
-        atomicos: {
-            /**
-             * Boolean, tamanho 1, unsigned 
-             */
-            BOOL: {
-                codigo: 193,
-                descricao: 'Boolean',
-                tamanho: 1,
-                isSigned: false
-            },
-            /**
-             * Small Int, tamanho 1, signed
-             */
-            SINT: {
-                codigo: 194,
-                descricao: 'Small Int',
-                tamanho: 1,
-                isSigned: true
-            },
-            /**
-             * Int, tamanho 2, signed
-             */
-            INT: {
-                codigo: 195,
-                descricao: 'Int',
-                tamanho: 2,
-                isSigned: true
-            },
-            /**
-             * Double Int, tamanho 4, signed
-             */
-            DINT: {
-                codigo: 196,
-                descricao: 'Double Int',
-                tamanho: 4,
-                isSigned: true
-            },
-            /**
-               * Unsigned Long Int, tamanho 8, signed
-               */
-            LINT: {
-                codigo: 197,
-                descricao: 'Long Int',
-                tamanho: 8,
-                isSigned: true
-            },
-            /**
-             * Unsigned Small Int, tamanho 1, unsigned
-             */
-            USINT: {
-                codigo: 198,
-                descricao: 'Unsigned Small Int',
-                tamanho: 1,
-                isSigned: false
-            },
-            /**
-             * Unsigned Int, tamanho 2, unsigned
-             */
-            UINT: {
-                codigo: 199,
-                descricao: 'Unsigned Int',
-                tamanho: 2,
-                isSigned: false
-            },
-            /**
-             * Unsigned Double Int, tamanho 4, unsigned
-             */
-            UDINT: {
-                codigo: 200,
-                descricao: 'Unsigned Double Int',
-                tamanho: 4,
-                isSigned: false
-            },
-            /**
-             * Unsigned Long Int, tamanho 8, unsigned
-             */
-            REAL: {
-                codigo: 202,
-                descricao: 'Real',
-                tamanho: 4,
-                isSigned: true
-            }
-        },
-        /**
-         * Structs são tipos "objetos", que contém apenas mais que um simples numero
-         */
-        structs: {
-            ASCIISTRING82: {
-                descricao: 'String ASCII de 82 bytes',
-                codigoTipoStruct: 4046
-            }
-        }
-    }
-
     #estado = {
         /**
          * Emissor de eventos do CompactLogix
@@ -230,9 +130,10 @@ export class CompactLogixRockwell {
             } else {
                 retornoConexao.erro.descricao = `Erro ao tentar se conectar: ${retornoConectar.erro.descricao}`;
             }
+        } else {
+            retornoConexao.isConectou = true;
         }
 
-        retornoConexao.isConectou = true;
         return retornoConexao;
     }
 
@@ -768,7 +669,7 @@ export class CompactLogixRockwell {
             retornoTag.sucesso.tag.struct.dataTypeStruct = converteBufferPraValor.conversao.struct.dataType;
 
             // Analisar o tipo da Struct e devolver corretamente no retorno
-            if (converteBufferPraValor.conversao.struct.dataType.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
+            if (converteBufferPraValor.conversao.struct.dataType.codigoTipoStruct == dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
 
                 /**
                  * @type {DataTypeTagStructASCIIString82}
@@ -1056,7 +957,7 @@ export class CompactLogixRockwell {
         if (!CIPConnectionManager.isValido().isValido) {
             retornoLeituraMultipla.erro.descricao = `O pacote CIP Connection Manager não é valido, alguma informação no Buffer está incorreta: ${CIPConnectionManager.isValido().erro.descricao}`;
 
-            return retornoLeitura
+            return retornoLeituraMultipla
         }
 
         // Ok, validado o código de status do CIP, agora devo ter um Multiple Service Packet encapsulado com os dados de cada Single Service
@@ -1647,14 +1548,14 @@ export class CompactLogixRockwell {
             } else if (solicitaLeituraTag.sucesso.tag.isStruct) {
 
                 switch (solicitaLeituraTag.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct) {
-                    case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                    case DataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
                         dataType.isStruct = true;
                         dataType.struct = {
                             classeStruct: undefined,
                             codigoStruct: undefined
                         }
 
-                        dataType.struct.codigoStruct = this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct;
+                        dataType.struct.codigoStruct = dataTypes.structs.ASCIISTRING82.codigoTipoStruct;
 
                         /**
                          * @type {EscreveTagStructASCIIString82}
@@ -1784,7 +1685,7 @@ export class CompactLogixRockwell {
             switch (dataType.struct.codigoStruct) {
 
                 // Se o Struct informado é uma String ASCII 82
-                case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                case DataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
                     /**
                      * @type {EscreveTagStructASCIIString82}
                      */
@@ -1816,7 +1717,7 @@ export class CompactLogixRockwell {
                     bufferDataType.writeUInt16LE(672, 0);
 
                     // Escrever o Tipo da Struct
-                    bufferDataType.writeUInt16LE(this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct, 2);
+                    bufferDataType.writeUInt16LE(DataTypes.structs.ASCIISTRING82.codigoTipoStruct, 2);
 
                     // Escrever o tamanho do Tipo da Struct(que é sempre 1 pra esse caso de Struct)
                     bufferDataType.writeUInt16LE(1, 4);
@@ -1841,7 +1742,7 @@ export class CompactLogixRockwell {
                     }
 
                     retornoEscrita.sucesso.tag.isStruct = true;
-                    retornoEscrita.sucesso.tag.struct.dataTypeStruct = this.#dataTypes.structs.ASCIISTRING82;
+                    retornoEscrita.sucesso.tag.struct.dataTypeStruct = DataTypes.structs.ASCIISTRING82;
                     retornoEscrita.sucesso.tag.struct.valor = retornoEscritaStructASCIIString82
                     break;
                 }
@@ -1883,7 +1784,7 @@ export class CompactLogixRockwell {
         if (retornoEscrita.sucesso.tag.isAtomico) {
             this.log(`Tag (${tag}) [Atomico Data Type ${retornoEscrita.sucesso.tag.atomico.dataType.codigo} - ${retornoEscrita.sucesso.tag.atomico.dataType.descricao}] tentando escrever o número: ${retornoEscrita.sucesso.tag.atomico.valor}`);
         } else if (retornoEscrita.sucesso.tag.isStruct) {
-            if (retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
+            if (retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct == DataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
                 this.log(`Tag (${tag}) [Struct Data Type ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct} - ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.descricao}] tentando escrever a String: ${retornoEscrita.sucesso.tag.struct.valor.valor}`);
             }
         }
@@ -2093,7 +1994,7 @@ export class CompactLogixRockwell {
         if (retornoEscrita.sucesso.tag.isAtomico) {
             this.log(`Tag (${tag}) [Atomico Data Type ${retornoEscrita.sucesso.tag.atomico.dataType.codigo} - ${retornoEscrita.sucesso.tag.atomico.dataType.descricao}] escrita com o número ${retornoEscrita.sucesso.tag.atomico.valor} em ${retornoEscrita.msDetalhes.totalMsEscrita}ms`);
         } else if (retornoEscrita.sucesso.tag.isStruct) {
-            if (retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct == this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
+            if (retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct == DataTypes.structs.ASCIISTRING82.codigoTipoStruct) {
                 this.log(`Tag (${tag}) [Struct Data Type ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.codigoTipoStruct} - ${retornoEscrita.sucesso.tag.struct.dataTypeStruct.descricao}] escrita com a String ${retornoEscrita.sucesso.tag.struct.valor.valor} em ${retornoEscrita.msDetalhes.totalMsEscrita}ms`);
             }
         }
@@ -2389,7 +2290,7 @@ export class CompactLogixRockwell {
                     } else if (tagLida.sucesso.isStruct) {
 
                         switch (tagLida.sucesso.struct.dataTypeStruct.codigoTipoStruct) {
-                            case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                            case DataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
 
                                 tagSetarDataType.identificaDataTypeAutomatico.isSucesso = true;
                                 tagSetarDataType.tagObjeto.dataTypeDados.isStruct = true;
@@ -2550,7 +2451,7 @@ export class CompactLogixRockwell {
 
                 // Se o Struct informado é uma String ASCII 82
                 switch (tagParaEscrita.tagObjeto.dataTypeDados.struct.codigoStruct) {
-                    case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                    case DataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
 
                         /**
                          * @type {EscreveTagStructASCIIString82}
@@ -2581,7 +2482,7 @@ export class CompactLogixRockwell {
                         bufferDataType.writeUInt16LE(672, 0);
 
                         // Escrever o Tipo da Struct
-                        bufferDataType.writeUInt16LE(this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct, 2);
+                        bufferDataType.writeUInt16LE(DataTypes.structs.ASCIISTRING82.codigoTipoStruct, 2);
 
                         // Escrever o tamanho do Tipo da Struct(que é sempre 1 pra esse caso de Struct)
                         bufferDataType.writeUInt16LE(1, 4);
@@ -2638,7 +2539,7 @@ export class CompactLogixRockwell {
                         tagParaEscrita.tagObjeto.dataTypeDados.isStruct = true;
                         tagParaEscrita.tagObjeto.dataTypeDados.struct = {
                             classeStruct: retornoEscritaStructASCIIString82,
-                            codigoStruct: this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct
+                            codigoStruct: DataTypes.structs.ASCIISTRING82.codigoTipoStruct
                         }
                         break;
                     }
@@ -3276,7 +3177,7 @@ export class CompactLogixRockwell {
                     switch (dataTypeConvertido) {
 
                         // Se for uma struct ASCII String 82
-                        case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                        case DataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
                             tagTypeDetalhe.dataType.isStruct = true;
                             tagTypeDetalhe.dataType.isDataTypeSuportado = true;
                             tagTypeDetalhe.dataType.classeDataType = this.getDataTypeStruct(dataTypeConvertido);
@@ -3318,7 +3219,7 @@ export class CompactLogixRockwell {
      * Retorna os Data Types disponiveis do controlador CompactLogix
      */
     getDataTypes() {
-        return this.#dataTypes;
+        return DataTypes;
     }
 
     /**
@@ -3327,14 +3228,14 @@ export class CompactLogixRockwell {
      * @returns {DataTypeTagAtomico}
      */
     getDataTypeAtomico(codigo) {
-        return Object.values(this.#dataTypes.atomicos).find((type) => type.codigo == codigo);
+        return Object.values(DataTypes.atomicos).find((type) => type.codigo == codigo);
     }
 
     /**
      * Retorna se um Data Type ta no range pra ser um tipo atomico(numero)
      */
     isDataTypeAtomico(tipo) {
-        return Object.values(this.#dataTypes.atomicos).some((type) => type.codigo == tipo);
+        return Object.values(DataTypes.atomicos).some((type) => type.codigo == tipo);
     }
 
     /**
@@ -3342,7 +3243,7 @@ export class CompactLogixRockwell {
      * @param {Number} codigoStruct - Código especifico do Struct
      */
     getDataTypeStruct(codigoStruct) {
-        return Object.values(this.#dataTypes.structs).find((type) => type.codigoTipoStruct == codigoStruct);
+        return Object.values(DataTypes.structs).find((type) => type.codigoTipoStruct == codigoStruct);
     }
 
     /**
@@ -3350,7 +3251,7 @@ export class CompactLogixRockwell {
      * @param {Number} codigoStruct
      */
     isDataTypeStruct(codStruct) {
-        return Object.values(this.#dataTypes.structs).some((type) => type.codigoTipoStruct == codStruct);
+        return Object.values(DataTypes.structs).some((type) => type.codigoTipoStruct == codStruct);
     }
 
     /**
@@ -3495,7 +3396,7 @@ export class CompactLogixRockwell {
             switch (detalhesStruct.codigoTipoStruct) {
 
                 // Tipo de Struct para String ASCII de 82 bytes
-                case this.#dataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
+                case DataTypes.structs.ASCIISTRING82.codigoTipoStruct: {
 
                     // Próximos 1 byte é o tamanho real total de caracteres na string
                     const tamanhoRealString = buffer.readUInt8(4);
@@ -3553,5 +3454,107 @@ export class CompactLogixRockwell {
         }
 
         console.log(`[${dataFormatada}] [CompactLogix] - ${conteudoMsg}`);
+    }
+}
+
+/**
+ * Esses são os Data Types suportados e especificos pro CompactLogix.
+ */
+export const DataTypes = {
+    /**
+     * Tipos de DataTypes atomicos(numeros) suportados
+     * Contém o código do tipo de dado, a descrição e o tamanho em bytes
+     */
+    atomicos: {
+        /**
+         * Boolean, tamanho 1, unsigned 
+         */
+        BOOL: {
+            codigo: 193,
+            descricao: 'Boolean',
+            tamanho: 1,
+            isSigned: false
+        },
+        /**
+         * Small Int, tamanho 1, signed
+         */
+        SINT: {
+            codigo: 194,
+            descricao: 'Small Int',
+            tamanho: 1,
+            isSigned: true
+        },
+        /**
+         * Int, tamanho 2, signed
+         */
+        INT: {
+            codigo: 195,
+            descricao: 'Int',
+            tamanho: 2,
+            isSigned: true
+        },
+        /**
+         * Double Int, tamanho 4, signed
+         */
+        DINT: {
+            codigo: 196,
+            descricao: 'Double Int',
+            tamanho: 4,
+            isSigned: true
+        },
+        /**
+           * Unsigned Long Int, tamanho 8, signed
+           */
+        LINT: {
+            codigo: 197,
+            descricao: 'Long Int',
+            tamanho: 8,
+            isSigned: true
+        },
+        /**
+         * Unsigned Small Int, tamanho 1, unsigned
+         */
+        USINT: {
+            codigo: 198,
+            descricao: 'Unsigned Small Int',
+            tamanho: 1,
+            isSigned: false
+        },
+        /**
+         * Unsigned Int, tamanho 2, unsigned
+         */
+        UINT: {
+            codigo: 199,
+            descricao: 'Unsigned Int',
+            tamanho: 2,
+            isSigned: false
+        },
+        /**
+         * Unsigned Double Int, tamanho 4, unsigned
+         */
+        UDINT: {
+            codigo: 200,
+            descricao: 'Unsigned Double Int',
+            tamanho: 4,
+            isSigned: false
+        },
+        /**
+         * Unsigned Long Int, tamanho 8, unsigned
+         */
+        REAL: {
+            codigo: 202,
+            descricao: 'Real',
+            tamanho: 4,
+            isSigned: true
+        }
+    },
+    /**
+     * Structs são tipos "objetos", que contém apenas mais que um simples numero
+     */
+    structs: {
+        ASCIISTRING82: {
+            descricao: 'String ASCII de 82 bytes',
+            codigoTipoStruct: 4046
+        }
     }
 }

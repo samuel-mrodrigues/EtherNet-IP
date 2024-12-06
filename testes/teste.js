@@ -1,6 +1,7 @@
-import { EtherNetIPSocket } from "../EtherNetIP/EtherNetIP.js";
-import { hexDeBuffer } from "../EtherNetIP/Utils/Utils.js";
-import { MicroLogix1400 } from "../Controladores/Rockwell/MicroLogix/MicroLogix1400.js";
+import { EtherNetIPSocket } from "../src/EtherNetIP/EtherNetIP.js";
+import { hexDeBuffer } from "../src/EtherNetIP/Utils/Utils.js";
+import { CompactLogixRockwell } from "../src/Controladores/Rockwell/CompactLogix/CompactLogix.js";
+import { MicroLogix1400 } from "../src/Controladores/Rockwell/MicroLogix/MicroLogix1400.js";
 
 async function teste() {
 
@@ -81,10 +82,26 @@ async function testeMicroLogix() {
 
     let versaoInfos = await micoLogix.readVersao();
     console.log(versaoInfos);
-    
+
 
 }
 
-testeMicroLogix();
+async function testeCompactLogix() {
+
+    const novoCompat = new CompactLogixRockwell({
+        ip: '192.168.3.120',
+        porta: 44818,
+        habilitaLogs: true
+    })
+
+    await novoCompat.conectar();
+
+    let lerTag = await novoCompat.lerTag('TESTE2');
+    console.log(lerTag);
+    
+}
+
+// testeMicroLogix();
 // teste();
 
+testeCompactLogix();
