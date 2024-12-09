@@ -1,7 +1,7 @@
 # Ignorar tudo
 *
 # Exceto src
-!src/
+!src/**
 # Manter README, LICENSE e package.json
 !README.md
 !LICENSE

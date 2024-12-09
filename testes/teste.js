@@ -96,8 +96,8 @@ async function testeCompactLogix() {
 
     await novoCompat.conectar();
 
-    let lerTag = await novoCompat.lerTag('TESTE2');
-    console.log(lerTag);
+    let soliciListaTags = await novoCompat.obterListaDeTags();
+    console.log(soliciListaTags);
     
 }
 

@@ -3079,8 +3079,10 @@ export class CompactLogixRockwell {
                 return retornoTags;
             }
 
+            const servicoAsConnectionManager = servicoCIPParser.getAsConnectionManager();
+
             // Obter a classe como generica pois eu vou tratar os dados manualmente.
-            const servicoGenericoPacket = servicoCIPParser.getAsServicoGenericoPacket();
+            const servicoGenericoPacket = servicoAsConnectionManager.getAsServicoGenericoPacket();
 
             if (!servicoGenericoPacket.isValido().isValido) {
                 retornoTags.erro.descricao = `O pacote de resposta não é um serviço generico não é valido, alguma informação no Buffer está incorreta: ${servicoGenericoPacket.isValido().erro.descricao}. Trace log: ${servicoGenericoPacket.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`;

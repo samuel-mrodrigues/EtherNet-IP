@@ -10,7 +10,7 @@ export {
     CompactLogixDataTypes,
     MicroLogix1400,
     EtherNetIPSocket,
-    CIPResponseCodes,
+    CIPGeneralStatusCodes,
     EtherNetIPLayerBuilder,
     EtherNetIPLayerComandos
 }
