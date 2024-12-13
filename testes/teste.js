@@ -96,9 +96,13 @@ async function testeCompactLogix() {
 
     await novoCompat.conectar();
 
-    let soliciListaTags = await novoCompat.obterListaDeTags();
-    console.log(soliciListaTags);
-    
+    setTimeout(() => {
+        console.log(`Desconectando..`);
+
+        novoCompat.desconectar();
+
+    }, 2000);
+
 }
 
 // testeMicroLogix();

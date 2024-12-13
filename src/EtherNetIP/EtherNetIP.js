@@ -41,7 +41,8 @@ export class EtherNetIPSocket {
         porta: 0,
         logs: {
             habilitarLogsConsole: false
-        }
+        },
+        isAutoReconectar: false
     }
 
     #estado = {
@@ -141,6 +142,7 @@ export class EtherNetIPSocket {
         if (parametros.conexao.porta == undefined) throw new Error('Porta do host não informada');
 
         if (parametros.isAutoReconnect) {
+            this.#configuracao.isAutoReconectar = true;
             this.toggleAutoReconnect(true);
         }
 
@@ -541,7 +543,11 @@ export class EtherNetIPSocket {
         await this.desautenticarENIP();
 
         this.#estado.opcoes.desconectadoManualmente = true;
-        this.#estado.socket.destroy();
+
+        // Se o Socket existir, destruir ele
+        if (this.#estado.socket != undefined) {
+            this.#estado.socket.destroy();
+        }
     }
 
     /**
@@ -781,6 +787,20 @@ export class EtherNetIPSocket {
     }
 
     /**
+     * Retorna as configurações atuais 
+     */
+    getConfiguracoes() {
+        const retorno = {
+            isAutoReconectar: this.#estado.opcoes.autoReconectar,
+            isLogsHabilitados: this.#configuracao.logs.habilitarLogsConsole,
+            ip: this.#configuracao.ip,
+            porta: this.#configuracao.porta
+        }
+
+        return retorno;
+    }
+
+    /**
      * Retorna o ID do Session Handler atual
      */
     getSessionHandlerID() {
@@ -863,6 +883,10 @@ export class EtherNetIPSocket {
 
         this.log('Conexão fechada.');
         this.#estado.emissorEvento.disparaEvento('desconectado');
+
+        this.#estado.ethernetIP.autenticacao.isAutenticado = false;
+        this.#estado.ethernetIP.autenticacao.isAutenticando = false;
+        this.#estado.ethernetIP.autenticacao.sessionHandlerID = 0;
 
         // Se tiver setado pra reconectar quando a conexão sair
         if (this.#estado.opcoes.autoReconectar && !this.#estado.opcoes.desconectadoManualmente) {
