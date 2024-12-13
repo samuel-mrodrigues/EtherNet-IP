@@ -18,12 +18,12 @@
  */
 
 import { CommandSpecificDataRegisterSessionBuilder } from "./CommandSpecificDatas/RegisterSession/RegisterSessionBuilder.js";
+import { CommandSpecificDataUnRegisterSessionBuilder } from "./CommandSpecificDatas/UnRegisterSession/UnRegisterSession.js";
 import { CommandSpecificDataListEntityBuilder } from "./CommandSpecificDatas/ListIdentity/ListIdentityBuilder.js";
 import { CommandSpecificDataListServicesBuilder } from "./CommandSpecificDatas/ListServices/ListServices.js";
 import { CommandSpecificDataSendRRDataBuilder } from "./CommandSpecificDatas/SendRRData/SendRRData.js";
 import { TraceLog } from "../../../Utils/TraceLog.js";
 import { hexDeBuffer, numeroToHex } from "../../../Utils/Utils.js";
-import { CommandSpecificDataUnRegisterSessionBuilder } from "./CommandSpecificDatas/UnRegisterSession/UnRegisterSession.js";
 
 /**
  * O Layer de EtherNet/IP (Industiral Protocol) contém as informações de encapsulamento do Header + Command Specific Data
@@ -59,7 +59,7 @@ export class EtherNetIPLayerBuilder {
         },
         /**
          * Automaticamente assume varios tipos dependendo do comando solicitado
-         * @type {CommandSpecificDataRegisterSessionBuilder | CommandSpecificDataListEntityBuilder | CommandSpecificDataListServicesBuilder | CommandSpecificDataSendRRDataBuilder}
+         * @type {CommandSpecificDataRegisterSessionBuilder | CommandSpecificDataListEntityBuilder | CommandSpecificDataListServicesBuilder | CommandSpecificDataSendRRDataBuilder | CommandSpecificDataUnRegisterSessionBuilder}
          */
         classeCommandSpecificData: undefined
     }
@@ -423,6 +423,33 @@ export class EtherNetIPLayerBuilder {
 
                 this.#buffers.commandSpecificData = bufferSendRRData.sucesso.buffer;
                 break;
+            }
+            /**
+             * Buildar o Buffer do UnRegisterSession
+             */
+            case Comandos.UnRegisterSession.hex: {
+
+                tracerGeraBuffer.add(`Criando o Buffer para UnRegister Session`);
+
+                const bufferUnRegisterSession = this.#campos.classeCommandSpecificData.criarBuffer();
+
+                retornoBuff.tracer.appendTraceLog(bufferUnRegisterSession.tracer);
+                if (!bufferUnRegisterSession.isSucesso) {
+                    retornoBuff.erro.descricao = `Erro ao gerar Buffer para o comando UnRegister Session: ${bufferUnRegisterSession.erro.descricao}`;
+
+                    tracerGeraBuffer.add(`Erro ao gerar Buffer para o comando UnRegister Session: ${bufferUnRegisterSession.erro.descricao}`);
+                    return retornoBuff;
+                }
+
+                // Se gerou o Buffer do UnregisterRegister Session, definir o tamanho
+                setTamanhoCommandSpecificData(bufferUnRegisterSession.sucesso.buffer.length);
+
+                // Setar o comando como RegisterSession
+                setComandoCabecalho(Comandos.UnRegisterSession.hex);
+
+                this.#buffers.commandSpecificData = bufferUnRegisterSession.sucesso.buffer;
+
+                break
             }
             /**
              * Qualquer comando que não for válido.
