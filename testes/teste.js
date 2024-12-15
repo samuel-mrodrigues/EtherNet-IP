@@ -96,12 +96,9 @@ async function testeCompactLogix() {
 
     await novoCompat.conectar();
 
-    setTimeout(() => {
-        console.log(`Desconectando..`);
-
-        novoCompat.desconectar();
-
-    }, 2000);
+    let leTag = await novoCompat.lerTag('BD_G5_MOTIVO_DIA_1[0]');
+    console.log(leTag);
+    
 
 }
 
