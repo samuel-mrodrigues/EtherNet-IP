@@ -3366,11 +3366,23 @@ export class CompactLogixRockwell {
                 return retornoConverte;
             }
 
-            // Realizar a tratativa pro valor numerico, que é a leitura do buffer a partir do 4 byte, até x bytes do tamanho do numero.
-            let valorContidoNoDataType = buffer.readUIntLE(2, detalhesDataType.tamanho);
+            let valorContidoNoDataType = []
+            switch (detalhesDataType.codigo) {
+                case DataTypes.atomicos.REAL.codigo: {
+
+                    // Como é Real, usar o Read Float
+                    valorContidoNoDataType = buffer.readFloatLE(2, detalhesDataType.tamanho);
+                    break;
+                }
+                default: {
+
+                    // Para todos os outros casos, utilizar o ReadInt
+                    valorContidoNoDataType = buffer.readUIntLE(2, detalhesDataType.tamanho);
+                    break;
+                }
+            }
 
             retornoConverte.isConvertido = true;
-
             retornoConverte.conversao.isAtomico = true;
 
             // Se tipo for bool, fazer uma tratativa pra mostar 0 e 1. Os tipos booleanos no Compact retornam 0 pra false e 255 pra true
