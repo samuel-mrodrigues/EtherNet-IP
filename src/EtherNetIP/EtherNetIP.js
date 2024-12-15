@@ -23,15 +23,6 @@ export class EtherNetIPSocket {
      */
 
     /**
-     * @callback CallbackConexaoNovoPacoteEtherNetIP
-     * @param {EtherNetIPLayerParser} enipParser - Parser do pacote EtherNet/IP recebido
-     * @param {Object} enipID - Detalhes do ID unico do pacote EtherNet/IP
-     * @param {Number} enipID.ID - O ID unico do pacote EtherNet/IP
-     * @param {String} enipID.digitoAleatorio - 4 digitos aleatórios usado para compor o ID
-     * @param {String} enipID.dateTime - 8 digitos do timestamp em millisegundos usado para compor o ID
-     */
-
-    /**
      * @callback CallbackLog
      * @param {String} mensagem - Mensagem de log disparada
      */
@@ -824,11 +815,33 @@ export class EtherNetIPSocket {
     }
 
     /**
+     * @callback CallbackConexaoNovoPacoteEtherNetIP
+     * @param {EtherNetIPLayerParser} enipParser - Parser do pacote EtherNet/IP recebido
+     * @param {Object} enipID - Detalhes do ID unico do pacote EtherNet/IP
+     * @param {Number} enipID.ID - O ID unico do pacote EtherNet/IP
+     * @param {String} enipID.digitoAleatorio - 4 digitos aleatórios usado para compor o ID
+     * @param {String} enipID.dateTime - 8 digitos do timestamp em millisegundos usado para compor o ID
+     */
+
+    /**
      * Adicionar um callback para quando receber um novo pacote ENIP(pacotes invalidos são descartados e ignorados)
      * @param {CallbackConexaoNovoPacoteEtherNetIP} cb 
      */
     onNovoPacoteENIP(cb) {
         return this.#estado.emissorEvento.addEvento('novo_pacote_enip', cb);
+    }
+
+    /**
+     * @callback CallbackConexaoNovoEnvioPacoteEtherNetIP 
+     * @param {EtherNetIPLayerBuilder} enipBuilder - Builder do pacote EtherNet/IP que foi enviado
+     */
+
+    /**
+     * Adicionar um callback para quando um pacote ENIP é enviado
+     * @param {CallbackConexaoNovoEnvioPacoteEtherNetIP} cb 
+     */
+    onEnvioPacoteENIP(cb) {
+        this.#estado.emissorEvento.addEvento('envio_pacote_enip', cb);
     }
 
     /**
@@ -961,7 +974,6 @@ export class EtherNetIPSocket {
         //     this.log(`Recebido um pacote EtherNet/IP inválido: ${etherNetIPParser.isValido().erro.descricao}. Stack de erro: ${etherNetIPParser.isValido().tracer.getHistoricoOrdenado().join(' -> ')}`);
         //     return;
         // }
-
 
         // Extrair o Sender Context do pacote recebido
         const senderContextBuffer = etherNetIPParser.getSenderContext();
