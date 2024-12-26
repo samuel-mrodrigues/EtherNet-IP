@@ -749,5 +749,169 @@ As escritas retornam sucesso se a operação foi feita com sucesso, e também é
     // },
     // }
 ```
+## CompactLogixV2
+A classe CompactLogixV2 utiliza a classe CompactLogix como base para facilitar ainda mais a comunicação com o CompactLogix. 
+
+CompactLogix oferece as comunicações básicas: leitura e escrita de forma livre sem restrições, utilize ela caso queira customizar sua interação com o dispositivo.
+
+CompactLogixV2 usa a CompactLogix para oferecer uma implementação robusta de leitura, escrita e observação de tags. As operações de leituras e escritas são colocadas em filas separadas para executar a cada X millisegundos, assim
+chamadas subsequentes em um for ou algo do tipo não irão spamar o dispositivo com requisições.
+
+### Conectar
+```javascript
+
+ // Conectar com um CompactLogix
+    const controlador = new CompactLogixV2({
+        conexao: {
+            ip: '192.168.3.120',
+            porta: 44818
+        },
+        isAutoReconectar: true,
+        isMostrarConsoleLogs: true
+    })
+
+    const statusConectou = await controlador.conectar();
+    if (!statusConectou.isConectado) {
+        console.log(`Erro ao conectar-se: ${statusConectou.erro.descricao}`);
+
+        return;
+    }
+
+    console.log(`Conectado`)
+
+    // Conectado
+```
+
+### Ler Tags
+Realiza leituras de tags(Disponível somente leitura de múltiplas tags).
+
+```javascript
+     // Ler tags
+    const leTag = await controlador.lerTags(['TESTE2', 'TESTE']);
+    console.log(leTag);
+
+//     {
+//     "isSucesso": true,
+//     "sucesso": {
+//         "tags": [
+//             {
+//                 "tag": "TESTE2",
+//                 "valor": {
+//                     "isAtomico": true,
+//                     "atomico": {
+//                         "numero": 456
+//                     }
+//                 },
+//                 "erro": {
+//                     "descricao": ""
+//                 },
+//                 "isLeituraRecebida": true,
+//                 "isTagValida": true,
+//                 "dataType": {
+//                     "isAtomico": true,
+//                     "atomico": {
+//                         "codigoAtomico": 196,
+//                         "descricao": "Double Int",
+//                         "isSigned": true,
+//                         "tamanho": 4
+//                     }
+//                 }
+//             },
+//             {
+//                 "tag": "TESTE",
+//                 "valor": {
+//                     "isAtomico": true,
+//                     "atomico": {
+//                         "numero": 6.866362475191604e-44
+//                     }
+//                 },
+//                 "erro": {
+//                     "descricao": ""
+//                 },
+//                 "isLeituraRecebida": true,
+//                 "isTagValida": true,
+//                 "dataType": {
+//                     "isAtomico": true,
+//                     "atomico": {
+//                         "codigoAtomico": 202,
+//                         "descricao": "Real",
+//                         "isSigned": true,
+//                         "tamanho": 4
+//                     }
+//                 }
+//             }
+//         ]
+//     },
+// }
+```
+
+### Escrever Tags
+Realiza escritas de tags(Disponível somente escrita de múltiplas tags)
+
+```javascript
+ // Escrever tags
+    const escreveTags = await controlador.escreverTags([
+        { tag: 'TESTE2', valor: 5 }
+    ])
+    console.log(escreveTags);
+
+//     {
+//     "isSucesso": true,
+//     "sucesso": {
+//         "tags": [
+//             {
+//                 "tag": "TESTE2",
+//                 "valor": 5,
+//                 "isEscritoSucesso": true,
+//                 "erro": {
+//                     "descricao": ""
+//                 },
+//                 "isRecebidoConfirmacao": true
+//             }
+//         ]
+//     },
+//     "erro": {
+//         "descricao": ""
+//     }
+// }
+```
+
+### Observar Tags
+Realiza o cadastro de um observador em uma tag. Quando o valor da tag mudar, o callback passado será executado com os valores antigos e novos.
+
+A classe lida com o cadastro de callbacks de forma eficiente pra cada tag, então não se preocupe em spamar observações na mesma tag.
+```javascript
+ // Observar tags
+    const observaTags = await controlador.observarTag('TESTE2', {
+        onAlterado: (antigo, novo) => {
+            console.log(`Valor antigo: ${JSON.stringify(antigo)}, novo valor: ${JSON.stringify(novo)}`);
+
+            // Valor antigo: {"isAtomico":true,"atomico":{"numero":123}}, novo valor: {"isAtomico":true,"atomico":{"numero":456}}
+
+            // Valor antigo: {"isAtomico":true,"atomico":{"numero":456}}, novo valor: {"isAtomico":true,"atomico":{"numero":123}}
+        }
+    })
+
+    if (observaTags.isSucesso) {
+
+        // A observação com sucesso retorna um ID de callback para cancelar a observação posteriormente.
+        console.log(`TAG observada com sucesso via ID ${observaTags.sucesso.idCallback}`);
+
+        setTimeout(() => {
+            console.log('Parando observação da tag TESTE2');
+            controlador.pararCallbackObservacaoTag('TESTE2', observaTags.sucesso.idCallback);
+        }, 5000);
+    }
+```
+
+### Parar Observação de Tags
+```javascript
+// Isso irá remover o observador ID 2 da tag TESTE2, enquanto outros observadores da tag continuam sendo chamados.
+controlador.pararCallbackObservacaoTag('TESTE2', 2);
+
+// Isso irá remover TODOS os observadores da tag.
+controlador.pararObservacaoTag('TESTE2');
+```
+
 ## Recursos Utilizados
 Utilizei outras bibliotecas como st-ethernet-ip e ethernet-ip pra ter uma ideia de como iniciar, utilizei também os manuais da AODV de implementação do EtherNet/IP e CIP(esta nos documentos aqui do projeto), e também a ferramente WireShark que me auxiliou bastante pra entender e fazer os Parsers e Builders dos bytes que são enviados e recebidos.

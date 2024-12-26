@@ -2,6 +2,7 @@ import { EtherNetIPSocket } from "../src/EtherNetIP/EtherNetIP.js";
 import { hexDeBuffer } from "../src/EtherNetIP/Utils/Utils.js";
 import { CompactLogixRockwell } from "../src/Controladores/Rockwell/CompactLogix/CompactLogix.js";
 import { MicroLogix1400 } from "../src/Controladores/Rockwell/MicroLogix/MicroLogix1400.js";
+import { CompactLogixV2 } from "../src/Controladores/Rockwell/CompactLogix/CompactLogixV2.js"
 
 async function teste() {
 
@@ -98,11 +99,62 @@ async function testeCompactLogix() {
 
     let leTag = await novoCompat.lerTag('BD_G5_MOTIVO_DIA_1[0]');
     console.log(leTag);
-    
+
 
 }
 
 // testeMicroLogix();
 // teste();
 
-testeCompactLogix();
+// testeCompactLogix();
+
+async function testeCompactLogixV2() {
+
+    // Conectar
+    const controlador = new CompactLogixV2({
+        conexao: {
+            ip: '192.168.3.120',
+            porta: 44818
+        },
+        isAutoReconectar: true,
+        isMostrarConsoleLogs: true
+    })
+
+    const statusConectou = await controlador.conectar();
+    if (!statusConectou.isConectado) {
+        console.log(`Erro ao conectar-se: ${statusConectou.erro.descricao}`);
+
+        return;
+    }
+
+    // Ler tags
+    const leTag = await controlador.lerTags(['TESTE2', 'TESTE']);
+    console.log(leTag);
+
+    // Escrever tags
+    const escreveTags = await controlador.escreverTags([
+        { tag: 'TESTE2', valor: 5 }
+    ])
+    console.log(escreveTags);
+
+    // Observar tags
+    const observaTags = await controlador.observarTag('TESTE2', {
+        onAlterado: (antigo, novo) => {
+            console.log(`Valor antigo: ${JSON.stringify(antigo)}, novo valor: ${JSON.stringify(novo)}`);
+        }
+    })
+
+    if (observaTags.isSucesso) {
+        console.log(`TAG observada com sucesso via ID ${observaTags.sucesso.idCallback}`);
+
+        setTimeout(() => {
+            console.log('Parando observação da tag TESTE2');
+            controlador.pararCallbackObservacaoTag('TESTE2', observaTags.sucesso.idCallback);
+
+            controlador.pararObservacaoTag('TESTE2');
+        }, 5000);
+    }    
+
+}
+
+testeCompactLogixV2();
