@@ -1,6 +1,6 @@
 {
   "name": "wow-another-ethernet-ip",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "main": "src/index.js",
   "description": "Uma biblioteca para comunicação com dispositivos com o protocolo CIP via Ethernet/IP",
   "type": "module",

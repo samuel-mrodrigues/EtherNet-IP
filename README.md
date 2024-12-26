@@ -26,9 +26,9 @@ A classe do EtherNet/IP utiliza o Builder(Monta o pacote de Buffer que vai ser e
 
 ### Estabelecendo uma conexão com um dispositivo EtherNet/IP
 ```javascript
-import { EtherNetIPSocket } from "../EtherNetIP/EtherNetIP.js";
+import { EtherNetIPSocket } from "wow-another-ethernet-ip"
 
-  // Informa os parametros de conexão com o dispositivo
+async function conectaEtherNetIP() {
     const connEthernetIP = new EtherNetIPSocket({
         conexao: {
             ip: '192.168.3.120',
@@ -37,26 +37,21 @@ import { EtherNetIPSocket } from "../EtherNetIP/EtherNetIP.js";
         isHabilitaLogs: true
     })
 
-    // O método conectar abre a conexão TCP com o dispositivo e já tenta iniciar a solicitação de Register Session com o dispositivo.
-    // O protocolo EtherNet/IP utiliza um "Session Handle", que é utilizado como uma chave que você precisa informar em
-    // suas solicitações CIP para o dispositivo remoto reconhecer que você está autorizado a fazer solicitações.
     let isConectou = await connEthernetIP.conectar();
-
-    // Verificar se conectou
     if (!isConectou.isConectou) {
         console.log(`Erro ao conectar com o dispositivo: ${isConectou.erro.descricao}`);
         return;
     }
-
     console.log(`Conectado com sucesso ao dispositivo. Session Handler é ${connEthernetIP.getSessionHandlerID()}`);
 
-// A partir daqui, é possível enviar os pacotes ENIPS para o dispositivo.
+    // A partir daqui, é possível enviar os pacotes ENIPS para o dispositivo.
+}
 ```
 Com a autenticação realizada, os próximos pacotes ENIPs que forem enviados pela classe já serão automaticamente configurados com o Session Handler
 
 ### Enviando um pacote ENIP de ListIdentity
 ```javascript
- // O Layer Builder é o inicio de tudo onde vc começa a preparar o que vc vai solicitar ao dispositivo
+    // O Layer Builder é o inicio de tudo onde vc começa a preparar o que vc vai solicitar ao dispositivo
     const layerEtherNetIP = connEthernetIP.getNovoLayerBuilder();
 
     // Inicialmente, vamos solicitar um comando pra pegar as informações basicas do dispositivo como nome, IP, versão, etc..
