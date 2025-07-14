@@ -69,7 +69,7 @@ async function teste() {
 
 async function testeMicroLogix() {
     const micoLogix = new MicroLogix1400({
-        ip: '192.168.3.182',
+        ip: '192.168.3.212',
         porta: 44818,
         autoReconectar: true,
         habilitaLogs: true
@@ -81,10 +81,9 @@ async function testeMicroLogix() {
         return;
     }
 
-    let versaoInfos = await micoLogix.readVersao();
+    let versaoInfos = await micoLogix.readFile('N7:1');
     console.log(versaoInfos);
-
-
+    
 }
 
 async function testeCompactLogix() {
@@ -157,4 +156,5 @@ async function testeCompactLogixV2() {
 
 }
 
-testeCompactLogixV2();
+// testeCompactLogixV2();
+testeMicroLogix();
