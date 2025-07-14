@@ -245,7 +245,6 @@ export class MicroLogix1400 {
         // Como é uma leitura, uso o comando e função Protected Typed 3 Address Read
         let leituraTyped3AddressBuilder = CommandData.setAsCommandProtectedTyped3Address('Read');
 
-
         // O File Number do Status FIle é o 2 no MicroLogix 1400
         leituraTyped3AddressBuilder.setFileNumber(Buffer.from([0x02]));
 
@@ -661,6 +660,213 @@ export class MicroLogix1400 {
         retornoIdenti.sucesso.versaoRevisao = identidadeCIP.versao_revisao;
 
         return retornoIdenti;
+    }
+
+    /**
+     *  Ler um arquivo do controlador MicroLogix 1400
+     * @param {String} identificacaoFile - Identificação do arquivo a ser lido e sua posição, ex: "S:2" para ler o Status File no index 2, N7:1
+     */
+    async readFile(identificacaoFile) {
+        const retornoRead = {
+            isSucesso: false,
+            erro: {
+                descricao: ''
+            }
+        }
+
+        // É obrigatório informar a identificação do arquivo no formato correto, ex: S:2, N7:1
+        if (identificacaoFile.indexOf(':') == -1) {
+            retornoRead.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+            return retornoRead;
+        }
+
+        // Splitar a identificação do Data File solicitado e a posição do index solicitado, ex: [N7, 1]
+        const idSplitado = identificacaoFile.split(':');
+        if (idSplitado.length != 2) {
+            retornoRead.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+            return retornoRead;
+        }
+
+        // O arquivo solicitado, exemplo: N7
+        let fileSolicitado = idSplitado[0].trim();
+        if (fileSolicitado.length != 2) {
+            retornoRead.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+            return retornoRead;
+        }
+
+        let novoLayerBuilder = this.#ENIPSocket.getNovoLayerBuilder();
+
+        // O CIP PCCC eu seto como um serviço CIP, específico para o PCCC
+        const CIPPCCC = novoLayerBuilder.buildSendRRData().criarServicoCIP().buildCIPPCCC();
+
+        // Seta a função para executar no pacote CIP PCCC(executar)
+        CIPPCCC.setServicePCCC(ServicosPCCC.ExecutePCCC.hex);
+
+        // O comando PCCC onde vou configurar todas as configurações da leitura
+        const CommandData = CIPPCCC.getCommandData();
+
+        // Como é uma leitura, uso o comando e função Protected Typed 3 Address Read
+        const leituraTyped3AddressBuilder = CommandData.setAsCommandProtectedTyped3Address('Read');
+
+        /**
+         * Detalhes da leitura que será realizada
+         */
+        const detalhesLeitura = {
+            /**
+             * Tipo do Data File 
+             * @type {'Integer'}
+             */
+            tipoDataFile: '',
+            /**
+             * Número do Data File
+             * @type {Number}
+             */
+            numeroDataFile: 0,
+            /**
+             * Index do Data File
+             * @type {Number}
+             */
+            indexDataFile: 0
+        }
+
+        // Validar o tipo do Data File(Se é inteiro, float, double, etc...)
+        const tipoDataFile = fileSolicitado[0].toUpperCase();
+        switch (tipoDataFile.toUpperCase()) {
+            case 'N': {
+                detalhesLeitura.tipoDataFile = 'Integer'
+                break;
+            }
+            default: {
+
+                retornoRead.erro.descricao = `Tipo de arquivo "${tipoDataFile}" não suportado. Somente N (Inteiro) é suportado.`;
+                return retornoRead;
+            }
+        }
+
+        // Validar o número do Data File solicitado
+        // A identificação do Data File é feita com o número do arquivo, ex: N7:1, onde o 7 é o número do arquivo, podendo ser N50:1, N99:1, etc..
+        const numeroDataFile = fileSolicitado[1];
+        if (isNaN(numeroDataFile)) {
+            retornoRead.erro.descricao = `Número do arquivo "${numeroDataFile}" não suportado. Somente números de 0 a 9 são suportados.`;
+            return retornoRead;
+        }
+        detalhesLeitura.numeroDataFile = parseInt(numeroDataFile);
+
+        // O index solicitado é o segundo valor do split, ex: N7:5, onde 5 vai ser o index
+        const indexSolicitado = parseInt(idSplitado[1].trim());
+        if (isNaN(indexSolicitado)) {
+            retornoRead.erro.descricao = `Index "${idSplitado[1]}" não é um número válido.`;
+            return retornoRead;
+        }
+
+        detalhesLeitura.indexDataFile = indexSolicitado;
+
+        // Com as informações coletadas da leitura única, configurar o comando de leitura
+
+        // O File Number do Data File é o número do arquivo, ex: N7:1, onde o número do arquivo é 7
+        leituraTyped3AddressBuilder.setFileNumber(Buffer.from([detalhesLeitura.numeroDataFile]));
+
+        // O tipo de arquivo é o tipo do Data File, ex: Integer
+        leituraTyped3AddressBuilder.setFileType(detalhesLeitura.tipoDataFile);
+
+        // A partir de qual indice da memória do Data File será iniciada a leitura
+        leituraTyped3AddressBuilder.setElementNumber(Buffer.from([detalhesLeitura.indexDataFile]));
+
+        // Como a quantidade de bytes a serem lidos depende do tipo do Data File, vou setar o tamanho de leitura baseado no tipo do Data File
+        // O número de bytes deve corresponder ao tamanho da "variavel". Informar um byte maior que o tipo do Data File irá fazer com que ele leia bytes de index vizinhos que não foram solicitados.
+        switch (detalhesLeitura.tipoDataFile) {
+            case 'Integer': {
+                // Leitura de 2 bytes a partir do index inicial
+                leituraTyped3AddressBuilder.setByteSize(2);
+                break;
+            }
+            default: {
+                retornoRead.erro.descricao = `Erro ao definir Byte Size: Tipo de arquivo "${detalhesLeitura.tipoDataFile}" não suportado. Somente N (Inteiro) é suportado.`;
+                return retornoRead;
+            }
+        }
+
+        // Algo com arrays, nem vou mexer no momento
+        leituraTyped3AddressBuilder.setSubElementNumber(Buffer.from([0x00]));
+
+        const respostaENIP = await this.#ENIPSocket.enviarENIP(novoLayerBuilder);
+
+        // Se a resposta não foi bem sucedida, analisar o erro
+        if (!respostaENIP.isSucesso) {
+
+            // Não deu pra enviar, devolver o erro ocorrido
+            if (!respostaENIP.enipEnviar.isEnviou) {
+                retornoControllerMode.erro.descricao = `${respostaENIP.enipEnviar.erro.descricao}`;
+            } else if (respostaENIP.enipReceber.isRecebeu) {
+                retornoControllerMode.erro.descricao = `${respostaENIP.enipReceber.erro.descricao}`;
+            }
+
+            return retornoControllerMode;
+        }
+
+        // Ok, se foi recebida uma resposta ENIP, validar o retorno
+        const parserENIP = respostaENIP.enipReceber.enipParser;
+        if (!parserENIP.isSendRRData()) {
+            retornoRead.erro.descricao = 'A resposta ENIP recebida não é um comando SendRRData.';
+
+            return retornoRead;
+        }
+
+        const parserSendRRData = parserENIP.getAsSendRRData();
+        if (!parserSendRRData.isValido().isValido) {
+            retornoRead.erro.descricao = `O Buffer SendRRData não é valido. Motivo: ${parserSendRRData.isValido().descricao}`;
+
+            return retornoRead;
+        }
+
+        const parserCIP = parserSendRRData.getAsServicoCIP();
+        if (!parserCIP.isValido().isValido) {
+            retornoRead.erro.descricao = `O Buffer CIP não é valido. Motivo: ${parserCIP.isValido().descricao}`;
+
+            return retornoRead;
+        }
+
+        // Se o layer do CIP for valido, validar se o status retornado é sucesso
+        if (!parserCIP.isStatusSucesso().isSucesso) {
+            retornoRead.erro.descricao = `O status retornado do CIP não foi sucesso. Foi retornado o status ${parserCIP.isStatusSucesso().erro.codigo} - ${parserCIP.isStatusSucesso().erro.descricao}`;
+
+            return retornoRead;
+        }
+
+        // Se o CIP for válido, então eu vou sem duvidas ter as informações dos próximo layer que deveria ser o PCCC Object
+        const parserPCCC = parserCIP.getAsPCCC();
+        if (!parserPCCC.isValido().isValido) {
+            retornoRead.erro.descricao = `O Buffer PCCC não é valido. Motivo: ${parserPCCC.isValido().descricao}`;
+
+            return retornoRead;
+        }
+
+        const parserPCCCResponseData = parserPCCC.getPCCCResponseData();
+        if (!parserPCCCResponseData.isPCCCSucesso().isSucesso) {
+            retornoRead.erro.descricao = `O dispositivo não aceitou executar a solicitação PCCC. Código ${parserPCCCResponseData.isPCCCSucesso().erro.codigo} - ${parserPCCCResponseData.isPCCCSucesso().erro.descricao}`;
+
+            return retornoRead;
+        }
+
+        // Ok, se retornou sucesso eu deveria ter por fim o Function Specific Data que seria os bytes da leitura do Data File onde tem as informações que vou extrair
+        const bufferResposta = parserPCCCResponseData.getFunctionSpecificResponseData();
+        if (bufferResposta.length == 0) {
+            retornoRead.erro.descricao = `O buffer de resposta não contém nenhum byte, não tem como extrair nada das informações do controlador.`;
+
+            return retornoRead;
+        }
+
+        // Agora, tenho certeza que vou ter os bytes da leitura do Data File.
+        switch (detalhesLeitura.tipoDataFile) {
+            case 'Integer': {
+
+                break;
+            }
+            default: {
+                retornoRead.erro.descricao = `Tipo de arquivo "${detalhesLeitura.tipoDataFile}" não suportado. Somente N (Inteiro) é suportado.`;
+                return retornoRead;
+            }
+        }
     }
 
     /**
