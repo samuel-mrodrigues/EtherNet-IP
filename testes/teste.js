@@ -81,24 +81,51 @@ async function testeMicroLogix() {
         return;
     }
 
-    let versaoInfos = await micoLogix.readFile('N7:1');
-    console.log(versaoInfos);
-    
+    let lerTag = await micoLogix.readFile('N7:93');
+    console.log(lerTag);
+
+    let escreveTag = await micoLogix.writeFile('N7:93', 10);
+    console.log(escreveTag);
+
 }
 
 async function testeCompactLogix() {
 
     const novoCompat = new CompactLogixRockwell({
-        ip: '192.168.3.120',
+        ip: '192.168.3.129',
         porta: 44818,
         habilitaLogs: true
     })
 
     await novoCompat.conectar();
 
-    let leTag = await novoCompat.lerTag('BD_G5_MOTIVO_DIA_1[0]');
-    console.log(leTag);
+    // const lerTeste = await novoCompat.lerTag('TESTE_BOOL')
+    // console.log(lerTeste);
+    const escreveTeste = await novoCompat.escreveTag('TESTE_BOOL', { isAtomico: true, atomico: { codigoAtomico: 193, valor: 1 } });
 
+    // Escrever em um inteiro
+    // novoCompat.escreveTag('TESTE_BOOL').then(a => {
+    //     console.log(a);
+
+    //     novoCompat.lerTag('').then(b => {
+    //         console.log(b);
+
+    //     })
+
+    // })
+
+
+    // Escrever em um real
+
+    // Escrever em uma string
+
+    // Escrever em um bit/booleano
+
+    // let leTag = await novoCompat.lerTag('PESO_BALANCA_D');
+    // console.log(leTag);
+
+    // const escreveTag = await novoCompat.escreveTag('PESO_BALANCA_D', {isAtomico: true, atomico: {codigoAtomico: 202, valor: 400.52}})
+    // console.log(escreveTag);
 
 }
 
@@ -152,9 +179,21 @@ async function testeCompactLogixV2() {
 
             controlador.pararObservacaoTag('TESTE2');
         }, 5000);
-    }    
+    }
 
 }
 
-// testeCompactLogixV2();
-testeMicroLogix();
+async function testaConexaoCompact() {
+    const compact = new CompactLogixRockwell({
+        ip: '192.168.3.195',
+        porta: 44818,
+        habilitaLogs: true,
+        autoReconectar: false
+    })
+
+    const tentaConectar = await compact.conectar();
+    console.log(tentaConectar);
+
+}
+
+testeCompactLogix();
