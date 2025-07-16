@@ -663,12 +663,24 @@ export class MicroLogix1400 {
     }
 
     /**
-     *  Ler um arquivo do controlador MicroLogix 1400
+     * Ler um arquivo do controlador MicroLogix 1400
      * @param {String} identificacaoFile - Identificação do arquivo a ser lido e sua posição, ex: "S:2" para ler o Status File no index 2, N7:1
      */
     async readFile(identificacaoFile) {
         const retornoRead = {
+            /**
+             * Se a operação de leitura foi bem sucedida
+             */
             isSucesso: false,
+            /**
+             * Se sucesso, contém as informações retornadas pela leitura do Data File
+             */
+            sucesso: {
+                valor: -1
+            },
+            /**
+             * Se erro, não contém as informações retornadas pela leitura do Data File
+             */
             erro: {
                 descricao: ''
             }
@@ -859,7 +871,14 @@ export class MicroLogix1400 {
         // Agora, tenho certeza que vou ter os bytes da leitura do Data File.
         switch (detalhesLeitura.tipoDataFile) {
             case 'Integer': {
-
+                try {
+                    const valorLido = bufferResposta.readUInt16LE();
+                    retornoRead.isSucesso = true;
+                    retornoRead.sucesso.valor = valorLido;
+                } catch (ex) {
+                    retornoRead.erro.descricao = `Erro ao converter o valor do buffer de resposta: ${ex.message}`;
+                    return retornoRead;
+                }
                 break;
             }
             default: {
@@ -867,6 +886,85 @@ export class MicroLogix1400 {
                 return retornoRead;
             }
         }
+
+        return retornoRead;
+    }
+
+    /**
+     * Escrever em um arquivo do controlador MicroLogix 1400
+     */
+    async writeFile(identificacaoFile, valor) {
+        const retornoWrite = {
+            /**
+             * Se a operação de escrita foi bem sucedida
+             */
+            isSucesso: false,
+            /**
+             * Se sucesso, contém as informações retornadas pela escrita do Data File
+             */
+            sucesso: {
+                valor: -1
+            },
+            /**
+             * Se erro, não contém as informações retornadas pela escrita do Data File
+             */
+            erro: {
+                descricao: ''
+            }
+        }
+
+        // É obrigatório informar a identificação do arquivo no formato correto, ex: S:2, N7:1
+        if (identificacaoFile.indexOf(':') == -1) {
+            retornoWrite.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+            return retornoWrite;
+        }
+
+        // Splitar a identificação do Data File solicitado e a posição do index solicitado, ex: [N7, 1]
+        const idSplitado = identificacaoFile.split(':');
+        if (idSplitado.length != 2) {
+            retornoWrite.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+            return retornoWrite;
+        }
+
+        // O arquivo solicitado, exemplo: N7
+        let fileSolicitado = idSplitado[0].trim();
+        if (fileSolicitado.length != 2) {
+            retornoWrite.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+            return retornoWrite;
+        }
+
+        const tipoDataFile = fileSolicitado[0].toUpperCase();
+        const identificacaoDataFile = fileSolicitado[1];
+
+        let novoLayerBuilder = this.#ENIPSocket.getNovoLayerBuilder();
+
+        // O CIP PCCC eu seto como um serviço CIP, específico para o PCCC
+        const CIPPCCC = novoLayerBuilder.buildSendRRData().criarServicoCIP().buildCIPPCCC();
+
+        // Seta a função para executar no pacote CIP PCCC(executar)
+        CIPPCCC.setServicePCCC(ServicosPCCC.ExecutePCCC.hex);
+
+        // O comando PCCC onde vou configurar todas as configurações da leitura
+        const CommandData = CIPPCCC.getCommandData();
+
+        // Como é uma escrita, uso o comando e função Protected Typed 3 Address Write
+        const escritaTyped3AddressBuilder = CommandData.setAsCommandProtectedTyped3Address('Write');
+
+        escritaTyped3AddressBuilder.setByteSize(2); // Tamanho de 2 bytes para o tipo Integer
+        escritaTyped3AddressBuilder.setElementNumber(Buffer.from([parseInt(idSplitado[1].trim())]));
+        escritaTyped3AddressBuilder.setSubElementNumber(Buffer.from([0x00]));
+        escritaTyped3AddressBuilder.setFileNumber(Buffer.from([parseInt(identificacaoDataFile)]));
+        escritaTyped3AddressBuilder.setFileType('Integer');
+
+        // Criar um buffer de 2 bytes
+        const bufferValor = Buffer.alloc(2);
+        bufferValor.writeUInt16LE(valor, 0);
+
+        escritaTyped3AddressBuilder.setData(bufferValor);
+
+        const aguardaPacoteENIP = await this.#ENIPSocket.enviarENIP(novoLayerBuilder);
+        console.log(aguardaPacoteENIP);
+
     }
 
     /**
