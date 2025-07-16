@@ -1652,23 +1652,35 @@ export class CompactLogixRockwell {
             // 2 Bytes do Tamanho do Data Type. Para numeros atomicos, é sempre 1.
             const bufferDataType = Buffer.alloc(4);
 
+            // Tipo do Data Type atomico
             bufferDataType.writeUInt16LE(detalhesDataType.codigo, 0);
+
+            // Tamanho do Data Type atomico, sempre é 1
             bufferDataType.writeUInt16LE(1, 2);
 
             // O resto do buffer é o tamanho do Data Type em bytes
             const bufferValor = Buffer.alloc(detalhesDataType.tamanho);
 
-            if (detalhesDataType.isSigned) {
+            // Escrever o valor no buffer conforme o tipo
+            if (detalhesDataType.codigo == DataTypes.atomicos.REAL.codigo) {
+                // Para tipos flutuantes(Real)
+                bufferValor.writeFloatLE(valorParaEscrever, 0);
+            } else if (detalhesDataType.isSigned) {
+
+                // Se for para números atomicos negativos ou positivo
+
                 if (detalhesDataType.tamanho <= 6) {
                     bufferValor.writeIntLE(valorParaEscrever, 0, detalhesDataType.tamanho);
                 } else {
-                    bufferValor.writeBigInt64LE(BigInt(valorParaEscrever), 0, detalhesDataType.tamanho);
+                    bufferValor.writeBigInt64LE(BigInt(valorParaEscrever), 0);
                 }
             } else {
+
+                // Se for para números atomicos positivos apenas
                 if (detalhesDataType.tamanho <= 6) {
                     bufferValor.writeUIntLE(valorParaEscrever, 0, detalhesDataType.tamanho);
                 } else {
-                    bufferValor.writeBigUInt64LE(BigInt(valorParaEscrever), 0, detalhesDataType.tamanho);
+                    bufferValor.writeBigUInt64LE(BigInt(valorParaEscrever), 0);
                 }
             }
 
@@ -1901,6 +1913,17 @@ export class CompactLogixRockwell {
             retornoEscrita.erro.isErroLayers = true;
             retornoEscrita.erro.erroLayers.isCIPInvalido = true;
             retornoEscrita.erro.erroLayers.CIPInvalido.trace = ENIPCIP.isValido().tracer.getHistoricoOrdenado();
+
+            this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
+            return retornoEscrita;
+        }
+
+        if (!ENIPCIP.isStatusSucesso().isSucesso) {
+
+            retornoEscrita.erro.descricao = `O pacote CIP retornou um status de erro: ${ENIPCIP.isStatusSucesso().erro.codigo} - ${ENIPCIP.isStatusSucesso().erro.descricao}}`;
+            retornoEscrita.erro.isStatusInvalido = true;
+            retornoEscrita.erro.statusInvalido.codigoDeErro = ENIPCIP.isStatusSucesso().erro.codigo;
+            retornoEscrita.erro.statusInvalido.descricaoStatus = ENIPCIP.isStatusSucesso().erro.descricao;
 
             this.log(`Erro ao escrever a tag ${tag}: ${retornoEscrita.erro.descricao}`);
             return retornoEscrita;
