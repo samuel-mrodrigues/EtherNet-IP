@@ -1555,7 +1555,7 @@ export class CompactLogixRockwell {
                             codigoStruct: undefined
                         }
 
-                        dataType.struct.codigoStruct = dataTypes.structs.ASCIISTRING82.codigoTipoStruct;
+                        dataType.struct.codigoStruct = DataTypes.structs.ASCIISTRING82.codigoTipoStruct;
 
                         /**
                          * @type {EscreveTagStructASCIIString82}
@@ -2420,20 +2420,28 @@ export class CompactLogixRockwell {
                 // O resto do buffer é o tamanho do Data Type em bytes
                 const bufferValor = Buffer.alloc(detalhesDataType.tamanho);
 
-                if (detalhesDataType.isSigned) {
+                // Escrever o valor no buffer conforme o tipo
+                if (detalhesDataType.codigo == DataTypes.atomicos.REAL.codigo) {
+                    // Para tipos flutuantes(Real)
+                    bufferValor.writeFloatLE(numeroParaEscrita, 0);
+                } else if (detalhesDataType.isSigned) {
+                    // Se for para números atomicos negativos ou positivo
+
                     if (detalhesDataType.tamanho <= 6) {
                         bufferValor.writeIntLE(numeroParaEscrita, 0, detalhesDataType.tamanho);
                     } else {
-                        bufferValor.writeBigInt64LE(BigInt(numeroParaEscrita), 0, detalhesDataType.tamanho);
+                        bufferValor.writeBigInt64LE(BigInt(numeroParaEscrita), 0);
                     }
                 } else {
+
+                    // Se for para números atomicos positivos apenas
                     if (detalhesDataType.tamanho <= 6) {
                         bufferValor.writeUIntLE(numeroParaEscrita, 0, detalhesDataType.tamanho);
                     } else {
-                        bufferValor.writeBigUInt64LE(BigInt(numeroParaEscrita), 0, detalhesDataType.tamanho);
+                        bufferValor.writeBigUInt64LE(BigInt(numeroParaEscrita), 0);
                     }
                 }
-
+                
                 // Juntar os dois e retornar ele
                 const bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferValor]);
 

@@ -664,9 +664,9 @@ export class MicroLogix1400 {
 
     /**
      * Ler um arquivo do controlador MicroLogix 1400
-     * @param {String} identificacaoFile - Identificação do arquivo a ser lido e sua posição, ex: "S:2" para ler o Status File no index 2, N7:1
+     * @param {String} identificacaoFile - Identificação do arquivo a ser lido e sua posição, ex: "S:2" para ler o Status File no index 2, N7:1 em inteiro, ST:3
      */
-    async readFile(identificacaoFile) {
+    async lerDataFile(identificacaoFile) {
         const retornoRead = {
             /**
              * Se a operação de leitura foi bem sucedida
@@ -676,6 +676,9 @@ export class MicroLogix1400 {
              * Se sucesso, contém as informações retornadas pela leitura do Data File
              */
             sucesso: {
+                /**
+                 * O valor lido é dinâmico.
+                 */
                 valor: -1
             },
             /**
@@ -686,23 +689,9 @@ export class MicroLogix1400 {
             }
         }
 
-        // É obrigatório informar a identificação do arquivo no formato correto, ex: S:2, N7:1
-        if (identificacaoFile.indexOf(':') == -1) {
-            retornoRead.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
-            return retornoRead;
-        }
-
-        // Splitar a identificação do Data File solicitado e a posição do index solicitado, ex: [N7, 1]
-        const idSplitado = identificacaoFile.split(':');
-        if (idSplitado.length != 2) {
-            retornoRead.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
-            return retornoRead;
-        }
-
-        // O arquivo solicitado, exemplo: N7
-        let fileSolicitado = idSplitado[0].trim();
-        if (fileSolicitado.length != 2) {
-            retornoRead.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+        const detalhesDataFileSolicitado = validarDatafileDeString(identificacaoFile);
+        if (!detalhesDataFileSolicitado.isValido) {
+            retornoRead.erro.descricao = detalhesDataFileSolicitado.descricao;
             return retornoRead;
         }
 
@@ -726,7 +715,7 @@ export class MicroLogix1400 {
         const detalhesLeitura = {
             /**
              * Tipo do Data File 
-             * @type {'Integer'}
+             * @type {'Integer' | 'String'}
              */
             tipoDataFile: '',
             /**
@@ -742,22 +731,26 @@ export class MicroLogix1400 {
         }
 
         // Validar o tipo do Data File(Se é inteiro, float, double, etc...)
-        const tipoDataFile = fileSolicitado[0].toUpperCase();
+        const tipoDataFile = detalhesDataFileSolicitado.valido.tipoDataFile.identificacao.toUpperCase();
         switch (tipoDataFile.toUpperCase()) {
             case 'N': {
                 detalhesLeitura.tipoDataFile = 'Integer'
                 break;
             }
+            case 'ST': {
+                detalhesLeitura.tipoDataFile = 'String';
+                break;
+            }
             default: {
 
-                retornoRead.erro.descricao = `Tipo de arquivo "${tipoDataFile}" não suportado. Somente N (Inteiro) é suportado.`;
+                retornoRead.erro.descricao = `Tipo de arquivo "${tipoDataFile}" não suportado.`;
                 return retornoRead;
             }
         }
 
         // Validar o número do Data File solicitado
         // A identificação do Data File é feita com o número do arquivo, ex: N7:1, onde o 7 é o número do arquivo, podendo ser N50:1, N99:1, etc..
-        const numeroDataFile = fileSolicitado[1];
+        const numeroDataFile = detalhesDataFileSolicitado.valido.numeroDataFile;
         if (isNaN(numeroDataFile)) {
             retornoRead.erro.descricao = `Número do arquivo "${numeroDataFile}" não suportado. Somente números de 0 a 9 são suportados.`;
             return retornoRead;
@@ -765,7 +758,7 @@ export class MicroLogix1400 {
         detalhesLeitura.numeroDataFile = parseInt(numeroDataFile);
 
         // O index solicitado é o segundo valor do split, ex: N7:5, onde 5 vai ser o index
-        const indexSolicitado = parseInt(idSplitado[1].trim());
+        const indexSolicitado = detalhesDataFileSolicitado.valido.indexDataFile;
         if (isNaN(indexSolicitado)) {
             retornoRead.erro.descricao = `Index "${idSplitado[1]}" não é um número válido.`;
             return retornoRead;
@@ -778,9 +771,6 @@ export class MicroLogix1400 {
         // O File Number do Data File é o número do arquivo, ex: N7:1, onde o número do arquivo é 7
         leituraTyped3AddressBuilder.setFileNumber(Buffer.from([detalhesLeitura.numeroDataFile]));
 
-        // O tipo de arquivo é o tipo do Data File, ex: Integer
-        leituraTyped3AddressBuilder.setFileType(detalhesLeitura.tipoDataFile);
-
         // A partir de qual indice da memória do Data File será iniciada a leitura
         leituraTyped3AddressBuilder.setElementNumber(Buffer.from([detalhesLeitura.indexDataFile]));
 
@@ -790,6 +780,15 @@ export class MicroLogix1400 {
             case 'Integer': {
                 // Leitura de 2 bytes a partir do index inicial
                 leituraTyped3AddressBuilder.setByteSize(2);
+
+                // O tipo de arquivo é o tipo do Data File, ex: Integer
+                leituraTyped3AddressBuilder.setFileType('Integer');
+                break;
+            }
+            case 'String': {
+
+                leituraTyped3AddressBuilder.setByteSize(84);
+                leituraTyped3AddressBuilder.setFileType('String');
                 break;
             }
             default: {
@@ -881,6 +880,36 @@ export class MicroLogix1400 {
                 }
                 break;
             }
+            case 'String': {
+
+                const decodeString = (buf) => {
+
+                    const strLen = buf.readUInt16LE(0);  // primeiro word é o tamanho (0x0005)
+
+                    const chars = [];
+
+                    for (let i = 0; i < Math.ceil(strLen / 2); i++) {
+                        const byte1 = buf[2 + i * 2];     // LSB
+                        const byte2 = buf[2 + i * 2 + 1]; // MSB
+
+                        if (chars.length < strLen) chars.push(String.fromCharCode(byte2)); // primeiro char da word
+                        if (chars.length < strLen) chars.push(String.fromCharCode(byte1)); // segundo char da word
+                    }
+
+                    return chars.join('');
+                }
+
+                try {
+
+                    const stringDecodada = decodeString(bufferResposta);
+                    retornoRead.isSucesso = true;
+                    retornoRead.sucesso.valor = stringDecodada;
+                } catch (ex) {
+                    retornoRead.erro.descricao = `Erro ao decodificar a string: ${ex.message}`;
+                    return retornoRead;
+                }
+                break;
+            }
             default: {
                 retornoRead.erro.descricao = `Tipo de arquivo "${detalhesLeitura.tipoDataFile}" não suportado. Somente N (Inteiro) é suportado.`;
                 return retornoRead;
@@ -933,8 +962,11 @@ export class MicroLogix1400 {
             return retornoWrite;
         }
 
-        const tipoDataFile = fileSolicitado[0].toUpperCase();
-        const identificacaoDataFile = fileSolicitado[1];
+        const detalhesDataFileSolicitado = validarDatafileDeString(identificacaoFile);
+        if (!detalhesDataFileSolicitado.isValido) {
+            retornoWrite.erro.descricao = detalhesDataFileSolicitado.erro.descricao;
+            return retornoWrite;
+        }
 
         let novoLayerBuilder = this.#ENIPSocket.getNovoLayerBuilder();
 
@@ -951,9 +983,9 @@ export class MicroLogix1400 {
         const escritaTyped3AddressBuilder = CommandData.setAsCommandProtectedTyped3Address('Write');
 
         escritaTyped3AddressBuilder.setByteSize(2); // Tamanho de 2 bytes para o tipo Integer
-        escritaTyped3AddressBuilder.setElementNumber(Buffer.from([parseInt(idSplitado[1].trim())]));
+        escritaTyped3AddressBuilder.setElementNumber(Buffer.from([detalhesDataFileSolicitado.valido.indexDataFile]));
         escritaTyped3AddressBuilder.setSubElementNumber(Buffer.from([0x00]));
-        escritaTyped3AddressBuilder.setFileNumber(Buffer.from([parseInt(identificacaoDataFile)]));
+        escritaTyped3AddressBuilder.setFileNumber(Buffer.from([detalhesDataFileSolicitado.valido.numeroDataFile]));
         escritaTyped3AddressBuilder.setFileType('Integer');
 
         // Criar um buffer de 2 bytes
@@ -1033,4 +1065,108 @@ const ModoControlador = {
         id: 30,
         descricao: "Run mode."
     }
+}
+
+/**
+ * Passar uma string e validar se é um Data File válido
+ * @param {String} string 
+ */
+function validarDatafileDeString(string) {
+    const retorno = {
+        /**
+         * Se a string informada corresponde a uma informação de Data File válido
+         */
+        isValido: false,
+        valido: {
+            /**
+             * O Index do data file solicitado
+             */
+            indexDataFile: -1,
+            /**
+             * A identificação do arquivo Data File, ex: N99
+             */
+            numeroDataFile: -1,
+            /**
+             * Detalhes do tipo do Data File solicitado
+             */
+            tipoDataFile: {
+                /**
+                 * Identificação original do tipo do Data File
+                 */
+                identificacao: '',
+                /**
+                 * Tipo do Data File
+                 * @type {'Integer' | 'String'}
+                 */
+                tipo: ''
+            }
+        },
+        /**
+         * Se não for válido, contém a descrição do erro
+         */
+        erro: {
+            descricao: ''
+        }
+    }
+
+    // Dividir a string informada pelo DataFileTipo:Index
+    const detalhes = string.split(':');
+    if (detalhes.length != 2) {
+        retorno.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
+        return retorno;
+    }
+
+    // O Detalhes do Data File deve corresponder ao tipo do Data File, ex: N7, ST3, ou seja se é inteiro, string, real, etc...
+    const detalhesDataFile = detalhes[0].trim();
+
+    // Validar o tipo do Data File
+    if (detalhesDataFile.startsWith('ST')) {
+
+        if (detalhesDataFile.length == 2) {
+            retorno.erro.descricao = `O Data file String(ST) deve conter o número do index, ex: ST3, ST4, etc...`;
+        }
+
+        const numeroIndiceArquivo = detalhesDataFile.substring(2).trim();
+
+        // Precisar ser númerico
+        if (isNaN(numeroIndiceArquivo)) {
+            retorno.erro.descricao = `O número do index do Data File String(ST) deve ser um número válido, ex: ST3, ST4, etc...`;
+            return retorno;
+        }
+
+        // Para Data Files do tipo String
+        retorno.valido.tipoDataFile.identificacao = 'ST';
+        retorno.valido.tipoDataFile.tipo = 'String';
+        retorno.valido.numeroDataFile = parseInt(numeroIndiceArquivo);
+    } else if (detalhesDataFile.startsWith('N')) {
+
+        // O N é seguido pelo índice do número do Data File
+        const numeroIndiceArquivo = detalhesDataFile.substring(1).trim();
+
+        // Precisar ser númerico
+        if (isNaN(numeroIndiceArquivo)) {
+            retorno.erro.descricao = `O número do index do Data File Inteiro(N) deve ser um número válido, ex: N7, N8, etc...`;
+            return retorno;
+        }
+
+        // Para Data Files do tipo Inteiro
+        retorno.valido.tipoDataFile.identificacao = 'N';
+        retorno.valido.tipoDataFile.tipo = 'Integer';
+        retorno.valido.numeroDataFile = parseInt(numeroIndiceArquivo);
+
+    } else {
+        retorno.erro.descricao = `Tipo de arquivo "${detalhesDataFile}" não suportado.`;
+        return retorno;
+    }
+
+    // O número do Index do Data File selecionado para retornar a informação
+    const indexNumeroSelecionado = detalhes[1].trim();
+    if (isNaN(indexNumeroSelecionado)) {
+        retorno.erro.descricao = `O número do index do Data File "${detalhesDataFile}" deve ser um número válido, ex: N7:1, ST3:2, etc...`;
+        return retorno;
+    }
+    retorno.valido.indexDataFile = parseInt(indexNumeroSelecionado);
+
+    retorno.isValido = true;
+    return retorno;
 }

@@ -69,9 +69,9 @@ async function teste() {
 
 async function testeMicroLogix() {
     const micoLogix = new MicroLogix1400({
-        ip: '192.168.3.212',
+        ip: '192.168.3.190',
         porta: 44818,
-        autoReconectar: true,
+        autoReconectar: false,
         habilitaLogs: true
     })
 
@@ -81,12 +81,27 @@ async function testeMicroLogix() {
         return;
     }
 
-    let lerTag = await micoLogix.readFile('N7:93');
-    console.log(lerTag);
+    // const layer = micoLogix.getENIPSocket().getNovoLayerBuilder();
 
-    let escreveTag = await micoLogix.writeFile('N7:93', 10);
-    console.log(escreveTag);
+    // const CIPPCCC = layer.buildSendRRData().criarServicoCIP().buildCIPPCCC();
 
+    // // Seta a função para executar no pacote CIP PCCC(executar)
+    // CIPPCCC.setServicePCCC(ServicosPCCC.ExecutePCCC.hex);
+
+    // // O comando PCCC onde vou configurar todas as configurações da leitura
+    // const CommandData = CIPPCCC.getCommandData();
+
+    // Como é uma leitura, uso o comando e função Protected Typed 3 Address Read
+    // const leituraTyped3AddressBuilder = CommandData.setAsCommandProtectedTyped3Address('Read');
+
+
+
+    // const lerInfo = await micoLogix.readVersao();
+    // console.log(lerInfo);
+
+    let leituraString = await micoLogix.lerDataFile('ST10:1')
+    console.log(leituraString);
+    
 }
 
 async function testeCompactLogix() {
@@ -99,33 +114,6 @@ async function testeCompactLogix() {
 
     await novoCompat.conectar();
 
-    // const lerTeste = await novoCompat.lerTag('TESTE_BOOL')
-    // console.log(lerTeste);
-    const escreveTeste = await novoCompat.escreveTag('TESTE_BOOL', { isAtomico: true, atomico: { codigoAtomico: 193, valor: 1 } });
-
-    // Escrever em um inteiro
-    // novoCompat.escreveTag('TESTE_BOOL').then(a => {
-    //     console.log(a);
-
-    //     novoCompat.lerTag('').then(b => {
-    //         console.log(b);
-
-    //     })
-
-    // })
-
-
-    // Escrever em um real
-
-    // Escrever em uma string
-
-    // Escrever em um bit/booleano
-
-    // let leTag = await novoCompat.lerTag('PESO_BALANCA_D');
-    // console.log(leTag);
-
-    // const escreveTag = await novoCompat.escreveTag('PESO_BALANCA_D', {isAtomico: true, atomico: {codigoAtomico: 202, valor: 400.52}})
-    // console.log(escreveTag);
 
 }
 
@@ -196,4 +184,5 @@ async function testaConexaoCompact() {
 
 }
 
-testeCompactLogix();
+// testeCompactLogix();
+testeMicroLogix();
