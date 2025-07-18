@@ -99,21 +99,46 @@ async function testeMicroLogix() {
     // const lerInfo = await micoLogix.readVersao();
     // console.log(lerInfo);
 
-    let leituraString = await micoLogix.lerDataFile('ST10:1')
-    console.log(leituraString);
+    // let leituraString = await micoLogix.lerDataFile('ST10:1')
+    // console.log(leituraString);
+
+    // const leituraString = await micoLogix.lerDataFile('ST10:5');
+    // console.log(leituraString);
+    
+    // let escritaString = await micoLogix.writeDataFile('ST10:5', 'Euuu soo queeero e ser feliz, andar tranquilamente')
+    // console.log(escritaString);
+
+    const statusCriaObservador = await micoLogix.observarDataFile('ST10:5', {
+        onDataFileAlterado: (valorAntigo, valorNovo) => {
+            console.log(`Valor antigo: ${valorAntigo}, novo valor: ${valorNovo}`);
+        },
+        onErroLeitura: (erro) => {
+            console.error(`Erro ao ler Data File: ${erro}`);
+        }
+    });
     
 }
 
 async function testeCompactLogix() {
 
     const novoCompat = new CompactLogixRockwell({
-        ip: '192.168.3.129',
+        ip: '192.168.3.124',
         porta: 44818,
         habilitaLogs: true
     })
 
     await novoCompat.conectar();
 
+    // let testeEscreve = await novoCompat.escreveTag('PESO_BALANCA_C_NEG', {isAtomico: true, atomico: {
+    //     codigoAtomico: 202,
+    //     valor: 666
+    // }})
+    // const testeEscreve = await novoCompat.escreveMultiplasTags([
+    //     {tag: 'PESO_BALANCA_C_NEG', dataType: {isAtomico: true, atomico: {codigoAtomico: 202, valor: 123}}},
+    // ])
+
+    console.log(testeEscreve);
+    
 
 }
 

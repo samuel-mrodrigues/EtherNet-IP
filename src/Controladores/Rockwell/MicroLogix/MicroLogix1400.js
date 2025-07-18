@@ -3,6 +3,21 @@ import { EtherNetIPSocket } from "../../../EtherNetIP/EtherNetIP.js";
 import { EmissorEvento } from "../../../Utils/EmissorEvento.js";
 
 /**
+ * @typedef ObservacaoDeDataFile
+ * @property {String} enderecoDataFile - Endereço completo do Data File, exemplo S:1, ST10:1, N7:10
+ * @property {*} valor - O valor atual nesse Data File
+ * @property {CallbackDeDataFile[]} callbacks - Callbacks que estão escutando por alterações nesse Data File
+ */
+
+/**
+ * @typedef CallbackDeDataFile
+ * @property {Number} id - Identificador único do callback para identificação e poder cancelar
+ * @property {Object} callbacks - Funções callbacks que serão executadas
+ * @property {FuncaoCallbackDataFileAlterado} callbacks.onDataFileAlterado - Evento a ser executado quando houver alteração no Data File
+ * @property {*} callbacks.onErroLeitura - Se ocorreu um erro na leitura do Data File para determinar se houve alterações 
+ */
+
+/**
  * Clase para interactuar con un controlador MicroLogix 1400 de Rockwell
  */
 export class MicroLogix1400 {
@@ -25,6 +40,24 @@ export class MicroLogix1400 {
          * Emissor de eventos
          */
         emissorEvento: new EmissorEvento(),
+        /**
+         * Estado de endereços lógicos sendo observados
+         */
+        dataFilesObservados: {
+            /**
+             * Data File sendo observados atualmente
+             * @type {ObservacaoDeDataFile[]}
+             */
+            observados: [],
+            /**
+             * Index de ID unico que incrementa a cada novo Data File observado
+             */
+            indexIdIncrementador: 0,
+            /**
+             * O ID do setInterval que será criado para realizar as leituras e disparar os callbacks
+             */
+            setIntervalTriggerLeituras: -1
+        }
     }
 
     /**
@@ -760,7 +793,7 @@ export class MicroLogix1400 {
         // O index solicitado é o segundo valor do split, ex: N7:5, onde 5 vai ser o index
         const indexSolicitado = detalhesDataFileSolicitado.valido.indexDataFile;
         if (isNaN(indexSolicitado)) {
-            retornoRead.erro.descricao = `Index "${idSplitado[1]}" não é um número válido.`;
+            retornoRead.erro.descricao = `Index "${indexSolicitado}" não é um número válido.`;
             return retornoRead;
         }
 
@@ -778,6 +811,7 @@ export class MicroLogix1400 {
         // O número de bytes deve corresponder ao tamanho da "variavel". Informar um byte maior que o tipo do Data File irá fazer com que ele leia bytes de index vizinhos que não foram solicitados.
         switch (detalhesLeitura.tipoDataFile) {
             case 'Integer': {
+
                 // Leitura de 2 bytes a partir do index inicial
                 leituraTyped3AddressBuilder.setByteSize(2);
 
@@ -787,11 +821,16 @@ export class MicroLogix1400 {
             }
             case 'String': {
 
-                leituraTyped3AddressBuilder.setByteSize(84);
+                // Leitura dos próximos 84 bytes que é o tamanho da String no MicroLogix 1400
+                leituraTyped3AddressBuilder.setByteSize(85);
+
+                // Data File é o tipo String
                 leituraTyped3AddressBuilder.setFileType('String');
                 break;
             }
             default: {
+
+                // Data File não suportado
                 retornoRead.erro.descricao = `Erro ao definir Byte Size: Tipo de arquivo "${detalhesLeitura.tipoDataFile}" não suportado. Somente N (Inteiro) é suportado.`;
                 return retornoRead;
             }
@@ -812,7 +851,7 @@ export class MicroLogix1400 {
                 retornoControllerMode.erro.descricao = `${respostaENIP.enipReceber.erro.descricao}`;
             }
 
-            return retornoControllerMode;
+            return retornoRead;
         }
 
         // Ok, se foi recebida uma resposta ENIP, validar o retorno
@@ -870,7 +909,10 @@ export class MicroLogix1400 {
         // Agora, tenho certeza que vou ter os bytes da leitura do Data File.
         switch (detalhesLeitura.tipoDataFile) {
             case 'Integer': {
+
                 try {
+
+                    // Para valores inteiros, eu leio 2 bytes do Buffer retornado no Command Data
                     const valorLido = bufferResposta.readUInt16LE();
                     retornoRead.isSucesso = true;
                     retornoRead.sucesso.valor = valorLido;
@@ -881,27 +923,10 @@ export class MicroLogix1400 {
                 break;
             }
             case 'String': {
-
-                const decodeString = (buf) => {
-
-                    const strLen = buf.readUInt16LE(0);  // primeiro word é o tamanho (0x0005)
-
-                    const chars = [];
-
-                    for (let i = 0; i < Math.ceil(strLen / 2); i++) {
-                        const byte1 = buf[2 + i * 2];     // LSB
-                        const byte2 = buf[2 + i * 2 + 1]; // MSB
-
-                        if (chars.length < strLen) chars.push(String.fromCharCode(byte2)); // primeiro char da word
-                        if (chars.length < strLen) chars.push(String.fromCharCode(byte1)); // segundo char da word
-                    }
-
-                    return chars.join('');
-                }
-
                 try {
 
-                    const stringDecodada = decodeString(bufferResposta);
+                    // Para valores String, eu decodo o Buffer inteiro recebido que contém o tamanho da String nos primeiros 2 bytes, e o restante é a String em si
+                    const stringDecodada = decodarStringDeBuffer(bufferResposta);
                     retornoRead.isSucesso = true;
                     retornoRead.sucesso.valor = stringDecodada;
                 } catch (ex) {
@@ -911,7 +936,7 @@ export class MicroLogix1400 {
                 break;
             }
             default: {
-                retornoRead.erro.descricao = `Tipo de arquivo "${detalhesLeitura.tipoDataFile}" não suportado. Somente N (Inteiro) é suportado.`;
+                retornoRead.erro.descricao = `Tipo de arquivo "${detalhesLeitura.tipoDataFile}" não suportado, não é possível converter o valor lido.`;
                 return retornoRead;
             }
         }
@@ -921,8 +946,10 @@ export class MicroLogix1400 {
 
     /**
      * Escrever em um arquivo do controlador MicroLogix 1400
+     * @param {String} identificacaoFile - Identificação do arquivo a ser escrito e sua posição, ex: "S:2" para escrever no Status File no index 2, N7:1 em inteiro, ST:3
+     * @param {Number} valor - O valor a ser escrito no arquivo, se for String
      */
-    async writeFile(identificacaoFile, valor) {
+    async writeDataFile(identificacaoFile, valor) {
         const retornoWrite = {
             /**
              * Se a operação de escrita foi bem sucedida
@@ -940,26 +967,6 @@ export class MicroLogix1400 {
             erro: {
                 descricao: ''
             }
-        }
-
-        // É obrigatório informar a identificação do arquivo no formato correto, ex: S:2, N7:1
-        if (identificacaoFile.indexOf(':') == -1) {
-            retornoWrite.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
-            return retornoWrite;
-        }
-
-        // Splitar a identificação do Data File solicitado e a posição do index solicitado, ex: [N7, 1]
-        const idSplitado = identificacaoFile.split(':');
-        if (idSplitado.length != 2) {
-            retornoWrite.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
-            return retornoWrite;
-        }
-
-        // O arquivo solicitado, exemplo: N7
-        let fileSolicitado = idSplitado[0].trim();
-        if (fileSolicitado.length != 2) {
-            retornoWrite.erro.descricao = 'Identificação do arquivo não informada corretamente. Deve ser no formato S:2, N7:1, etc...';
-            return retornoWrite;
         }
 
         const detalhesDataFileSolicitado = validarDatafileDeString(identificacaoFile);
@@ -980,23 +987,314 @@ export class MicroLogix1400 {
         const CommandData = CIPPCCC.getCommandData();
 
         // Como é uma escrita, uso o comando e função Protected Typed 3 Address Write
-        const escritaTyped3AddressBuilder = CommandData.setAsCommandProtectedTyped3Address('Write');
+        const escritaTyped3AddressBuilder = CommandData.setAsCommandProtectedTyped3Address('Write')
 
-        escritaTyped3AddressBuilder.setByteSize(2); // Tamanho de 2 bytes para o tipo Integer
+        const tipoDoDataFile = detalhesDataFileSolicitado.valido.tipoDataFile.identificacao.toUpperCase();
+        switch (tipoDoDataFile) {
+            case 'N': {
+                escritaTyped3AddressBuilder.setFileType('Integer');
+                escritaTyped3AddressBuilder.setByteSize(2);
+
+                // Alocar 2 bytes pro int
+                const bufferValor = Buffer.alloc(2);
+
+                // Escrever o valor desejado
+                bufferValor.writeUInt16LE(valor, 0);
+                escritaTyped3AddressBuilder.setData(bufferValor);
+                break;
+            }
+            case 'ST': {
+                escritaTyped3AddressBuilder.setFileType('String');
+                escritaTyped3AddressBuilder.setByteSize(85);
+
+                const bufferTeste = Buffer.alloc(85);
+
+                // 2 Bytes pro tamanho da String
+                bufferTeste.writeUInt16LE(valor.length, 0);
+
+                const bufferDaString = codificarStringParaBuffer(valor, 82);
+
+                bufferTeste.set(bufferDaString, 2);
+
+                escritaTyped3AddressBuilder.setData(bufferTeste);
+                break;
+            }
+            default: {
+                retornoWrite.erro.descricao = `Tipo de arquivo "${detalhesDataFileSolicitado.valido.tipoDataFile.identificacao}" não suportado.`;
+                break;
+            }
+        }
+
         escritaTyped3AddressBuilder.setElementNumber(Buffer.from([detalhesDataFileSolicitado.valido.indexDataFile]));
         escritaTyped3AddressBuilder.setSubElementNumber(Buffer.from([0x00]));
         escritaTyped3AddressBuilder.setFileNumber(Buffer.from([detalhesDataFileSolicitado.valido.numeroDataFile]));
-        escritaTyped3AddressBuilder.setFileType('Integer');
-
-        // Criar um buffer de 2 bytes
-        const bufferValor = Buffer.alloc(2);
-        bufferValor.writeUInt16LE(valor, 0);
-
-        escritaTyped3AddressBuilder.setData(bufferValor);
 
         const aguardaPacoteENIP = await this.#ENIPSocket.enviarENIP(novoLayerBuilder);
-        console.log(aguardaPacoteENIP);
 
+        if (!aguardaPacoteENIP.isSucesso) {
+            if (!aguardaPacoteENIP.enipEnviar.isEnviou) {
+                retornoWrite.erro.descricao = `${aguardaPacoteENIP.enipEnviar.erro.descricao}`;
+            } else if (!aguardaPacoteENIP.enipReceber.isRecebeu) {
+                retornoWrite.erro.descricao = `${aguardaPacoteENIP.enipReceber.erro.descricao}`;
+            }
+            return retornoWrite;
+        }
+
+        const parserENIP = aguardaPacoteENIP.enipReceber.enipParser;
+        if (!parserENIP.isSendRRData()) {
+            retornoWrite.erro.descricao = 'A resposta ENIP recebida não é um comando SendRRData.';
+            return retornoWrite;
+        }
+
+        const parserSendRRData = parserENIP.getAsSendRRData();
+        if (!parserSendRRData.isValido().isValido) {
+            retornoWrite.erro.descricao = `O Buffer SendRRData não é valido. Motivo: ${parserSendRRData.isValido().descricao}`;
+            return retornoWrite;
+        }
+
+        const parserCIP = parserSendRRData.getAsServicoCIP();
+        if (!parserCIP.isValido().isValido) {
+            retornoWrite.erro.descricao = `O Buffer CIP não é valido. Motivo: ${parserCIP.isValido().descricao}`;
+            return retornoWrite;
+        }
+
+        if (!parserCIP.isStatusSucesso().isSucesso) {
+            retornoWrite.erro.descricao = `O status retornado do CIP não foi sucesso. Foi retornado o status ${parserCIP.isStatusSucesso().erro.codigo} - ${parserCIP.isStatusSucesso().erro.descricao}`;
+            return retornoWrite;
+        }
+
+        const parserPCCC = parserCIP.getAsPCCC();
+        if (!parserPCCC.isValido().isValido) {
+            retornoWrite.erro.descricao = `O Buffer PCCC não é valido. Motivo: ${parserPCCC.isValido().descricao}`;
+            return retornoWrite;
+        }
+
+        const parserPCCCResponseData = parserPCCC.getPCCCResponseData();
+        if (!parserPCCCResponseData.isPCCCSucesso().isSucesso) {
+            retornoWrite.erro.descricao = `O dispositivo não aceitou executar a solicitação PCCC. Código ${parserPCCCResponseData.isPCCCSucesso().erro.codigo} - ${parserPCCCResponseData.isPCCCSucesso().erro.descricao}`;
+            return retornoWrite;
+        }
+
+        retornoWrite.isSucesso = true;
+        retornoWrite.sucesso.valor = valor;
+        return retornoWrite;
+    }
+
+    /**
+     * @callback FuncaoCallbackDataFileAlterado
+     * @param {*} valorAntigo - O valor antigo antes da alteração
+     * @param {*} valorNovo - O novo valor após a alteração
+     */
+
+    /**
+     * @callback FuncaoCallbackErroLeituraDataFile
+     * @param {String} descricao - Descrição do erro ocorrido ao tentar ler o Data File
+     */
+
+    /**
+     * Observar por alterações em um Data File
+     * @param {String} identificacaoFile - Identificação do arquivo a ser observado, ex: "S:2" para observar o Status File no index 2, N7:1 em inteiro, ST:3
+     * @param {Object} callbacks - Configurar as ações a serem executadas para o Data File
+     * @param {FuncaoCallbackDataFileAlterado} callbacks.onDataFileAlterado - Ação a ser executada quando o Data File for alterado
+     * @param {FuncaoCallbackErroLeituraDataFile} callbacks.onErroLeitura - Ação a ser executada quando ocorrer um erro ao tentar ler o Data File
+     */
+    async observarDataFile(identificacaoFile, callbacks) {
+        const retorno = {
+            /**
+             * Se foi possível iniciar a observação do Data File
+             */
+            isSucesso: true,
+            /**
+             * Se foi possível iniciar a observação do Data File, contém as informações do observador criado
+             */
+            sucesso: {
+                /**
+                 * ID único do observador criado
+                 */
+                idUnicoCallback: -1,
+                /**
+                 * Uma função utilitária que pode ser chamada para excluir o observador rapido.
+                 */
+                excluir: () => { }
+            },
+            /**
+             * Se ocorreu algum erro ao tentar iniciar a observação do Data File
+             */
+            erro: {
+                descricao: ''
+            }
+        }
+
+        const detalhesDataFileSolicitado = validarDatafileDeString(identificacaoFile);
+        if (!detalhesDataFileSolicitado.isValido) {
+            retorno.erro.descricao = detalhesDataFileSolicitado.erro.descricao;
+
+            return retorno;
+        }
+
+        const solicitaLeitura = await this.lerDataFile(detalhesDataFileSolicitado.valido.enderecoLogicoCompleto);
+        if (!solicitaLeitura.isSucesso) {
+            retorno.erro.descricao = `Não foi possível ler o Data File solicitado: ${solicitaLeitura.erro.descricao}`;
+            return retorno;
+        }
+
+        // Pegar o endereço lógico completo do Data File solicitado
+        let novoObservadorEndereco = this.#estado.dataFilesObservados.observados.find(ob => ob.enderecoDataFile == detalhesDataFileSolicitado.valido.enderecoLogicoCompleto);
+        if (novoObservadorEndereco == undefined) {
+            // Se ele ainda não existir, criar e adicionar a lista de observadores
+
+            novoObservadorEndereco = {
+                callbacks: [],
+                enderecoDataFile: detalhesDataFileSolicitado.valido.enderecoLogicoCompleto,
+                valor: solicitaLeitura.sucesso.valor
+            }
+
+            this.#estado.dataFilesObservados.observados.push(novoObservadorEndereco);
+        }
+
+        // Agora, adicionar o novo callback
+        /**
+         * @type {CallbackDeDataFile}
+         */
+        const novoCallback = {
+            id: this.#estado.dataFilesObservados.indexIdIncrementador++,
+            callbacks: {
+                onErroLeitura: typeof callbacks.onErroLeitura == 'function' ? callbacks.onErroLeitura : () => { },
+                onDataFileAlterado: typeof callbacks.onDataFileAlterado == 'function' ? callbacks.onDataFileAlterado : () => { }
+            }
+        }
+
+        novoObservadorEndereco.callbacks.push(novoCallback);
+
+        retorno.isSucesso = true;
+        retorno.sucesso.idUnicoCallback = novoCallback.id;
+        retorno.sucesso.excluir = () => {
+            this.pararObservadorUnicoDataFile(novoObservadorEndereco.enderecoDataFile, novoCallback.id);
+        }
+
+        this.log(`Iniciando a observação do Data File: ${novoObservadorEndereco.enderecoDataFile} com ID ${novoCallback.id}`);
+
+        // Verificar se o setInterval de leituras está ativo, se não estiver, iniciar ele
+        if (this.#estado.dataFilesObservados.setIntervalTriggerLeituras == -1) {
+            this.log(`Iniciando o setInterval de leituras dos Data Files observados.`);
+            this.#estado.dataFilesObservados.setIntervalTriggerLeituras = setInterval(() => {
+                this.triggerLeituraObservacoesDataFile();
+            }, 1000);
+        }
+        this.triggerLeituraObservacoesDataFile();
+        return retorno;
+    }
+
+    /**
+     * Parar de observar um data file por completo. Todos os observadores cadastrados no endereço lógico espécificado serão removidos
+     * @param {String} identificacaoFile 
+     */
+    async pararObservarDataFile(identificacaoFile) {
+        this.#estado.dataFilesObservados.observados = this.#estado.dataFilesObservados.observados.filter(ob => ob.enderecoDataFile != identificacaoFile);
+        this.log(`Parando de observar o Data File: ${identificacaoFile}`);
+
+        // Se não tiver mais nenhum observador, parar o setInterval de leituras
+        if (this.#estado.dataFilesObservados.observados.length == 0) {
+            clearInterval(this.#estado.dataFilesObservados.setIntervalTriggerLeituras);
+            this.#estado.dataFilesObservados.setIntervalTriggerLeituras = -1;
+        }
+    }
+
+    /**
+     * Parar um observador único de um Data File.
+     * @param {String} identificacaoFile - Identificação do endereço lógico do Data File para ser observado. Exemplo: N7:0 
+     * @param {Number} id - ID original do observador para remover 
+     */
+    async pararObservadorUnicoDataFile(identificacaoFile, id) {
+        const retorno = {
+            /**
+             * Se foi possível parar o observador do Data File
+             */
+            isSucesso: false,
+            erro: {
+                descricao: ''
+            }
+        }
+
+        const validacaoDataFile = validarDatafileDeString(identificacaoFile);
+
+        if (!validacaoDataFile.isValido) {
+            retorno.erro.descricao = validacaoDataFile.erro.descricao;
+            return retorno;
+        }
+
+        const observadorDataFile = this.#estado.dataFilesObservados.observados.find(ob => ob.enderecoDataFile == validacaoDataFile.valido.enderecoLogicoCompleto);
+        if (observadorDataFile == undefined) {
+            retorno.erro.descricao = `Não existe nenhum observador cadastrado para o Data File: ${validacaoDataFile.valido.enderecoLogicoCompleto}`;
+            return retorno;
+        }
+
+        // Verificar se o ID do callback existe
+        const callbackIndex = observadorDataFile.callbacks.findIndex(cb => cb.id == id);
+        if (callbackIndex == -1) {
+            retorno.erro.descricao = `Não existe nenhum callback cadastrado com o ID: ${id} para o Data File: ${validacaoDataFile.valido.enderecoLogicoCompleto}`;
+            return retorno;
+        }
+
+        // Se o callback foi encontrado, remover ele do array de callbacks
+        observadorDataFile.callbacks.splice(callbackIndex, 1);
+
+        // Se não tiver mais callbacks, remover o observador do array de observados
+        if (observadorDataFile.callbacks.length == 0) {
+            this.pararObservarDataFile(validacaoDataFile.valido.enderecoLogicoCompleto);
+        }
+
+        retorno.isSucesso = true;
+        return retorno;
+    }
+
+    /**
+     * Executar um trigger na leitura dos Data Files sendo observados.
+     */
+    triggerLeituraObservacoesDataFile() {
+
+        if (this.#estado.dataFilesObservados.observados.length == 0) {
+            this.log(`Ignorando trigger de leitura de tags observadas pois não existem Data Files observados.`);
+            return;
+        }
+
+        this.log(`Dando trigger na leitura de ${this.#estado.dataFilesObservados.observados.length} Data Files...`);
+
+        this.#estado.dataFilesObservados.observados.forEach(async (observador) => {
+
+            this.lerDataFile(observador.enderecoDataFile).then((resultadoLeitura) => {
+
+                // Para erros de leitura
+                if (!resultadoLeitura.isSucesso) {
+
+                    // Se ocorrer falha na leitura, eu ignoro a execução dos callbacks
+                    observador.callbacks.forEach(cb => {
+                        try {
+                            cb.callbacks.onErroLeitura(resultadoLeitura.erro.descricao);
+                        } catch (ex) { }
+                    })
+                    return;
+                }
+
+                // Pegar o valor antigo
+                const valorAntigo = observador.valor;
+
+                // Fixar o valor novo
+                observador.valor = resultadoLeitura.sucesso.valor;
+
+                if (observador.valor != valorAntigo) {
+                    // Pra cada callback adicionado, executar ele
+                    observador.callbacks.forEach(cb => {
+
+                        try {
+                            cb.callbacks.onDataFileAlterado(valorAntigo, observador.valor);
+                        } catch (ex) {
+
+                        }
+                    })
+                }
+            })
+        });
     }
 
     /**
@@ -1069,15 +1367,19 @@ const ModoControlador = {
 
 /**
  * Passar uma string e validar se é um Data File válido
- * @param {String} string 
+ * @param {String} string - String do endereço lógico para verificar
  */
-function validarDatafileDeString(string) {
+export function validarDatafileDeString(string) {
     const retorno = {
         /**
          * Se a string informada corresponde a uma informação de Data File válido
          */
         isValido: false,
         valido: {
+            /**
+             * O endereço lógico completo do Data File solicitado
+             */
+            enderecoLogicoCompleto: '',
             /**
              * O Index do data file solicitado
              */
@@ -1166,7 +1468,45 @@ function validarDatafileDeString(string) {
         return retorno;
     }
     retorno.valido.indexDataFile = parseInt(indexNumeroSelecionado);
+    retorno.valido.enderecoLogicoCompleto = string;
 
     retorno.isValido = true;
     return retorno;
+}
+
+/**
+ * Decodifica uma string de um buffer que foi lido de um controlador Micrologix 1400
+ */
+export function decodarStringDeBuffer(buf) {
+    const strLen = buf.readUInt16LE(0);
+    const chars = [];
+
+    for (let i = 0; i < Math.ceil(strLen / 2); i++) {
+        const byte1 = buf[2 + i * 2];
+        const byte2 = buf[2 + i * 2 + 1];
+
+        if (chars.length < strLen) chars.push(String.fromCharCode(byte2));
+        if (chars.length < strLen) chars.push(String.fromCharCode(byte1));
+    }
+
+    return chars.join('');
+}
+
+/**
+ * Codifica uma string para um buffer que será enviado para o controlador MicroLogix 1400
+ * @param {String} string - A string para codificar
+ */
+export function codificarStringParaBuffer(string, tamanho = 85) {
+    const dataBuf = Buffer.alloc(tamanho, 0); // preenche com zeros
+
+    for (let i = 0; i < string.length; i += 2) {
+        const ch1 = string.charCodeAt(i);       // primeiro caractere do par
+        const ch2 = i + 1 < string.length ? string.charCodeAt(i + 1) : 0;
+
+        // Inverter os dois na word LE → LSB = ch2, MSB = ch1
+        const word = (ch1 << 8) | ch2;
+        dataBuf.writeUInt16LE(word, i); // escreve no offset correto
+    }
+
+    return dataBuf;
 }
