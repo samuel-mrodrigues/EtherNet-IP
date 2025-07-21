@@ -652,7 +652,6 @@ As escritas retornam sucesso se a operação foi feita com sucesso, e também é
 
     // Nesse caso eu informei o Data Type, porém a tag não existe no controlador.
 ```
-
 ### Listar Tags
 
 É possível solicitar a lista de todas as tags presentes no CompactLogix com seus Data Types inclusos
@@ -749,6 +748,120 @@ As escritas retornam sucesso se a operação foi feita com sucesso, e também é
     // },
     // }
 ```
+
+## MicroLogix 1400
+A classe Micrologix 1400, permite comunicação com modelos A/B e oferece suporte para as seguintes operações:
+
+- ** Leitura de Data Files
+- ** Escrita de Data Files
+- ** Observações de Data Files
+
+No momento, foi testado apenas para valores de Data Files (N) e (ST).
+
+### Conectar
+```javascript
+
+    const micoLogix = new MicroLogix1400({
+        ip: '192.168.3.190',
+        porta: 44818,
+        autoReconectar: false,
+        habilitaLogs: true
+    })
+
+    // Tentar se conectar
+    let statusConecta = await micoLogix.conectar();
+
+    if (!statusConecta.isConectou) {
+        console.log(`Não foi possível se conectar: ${statusConecta.erro.descricao}`);
+        return;
+    }
+
+    console.log(`MicroLogix conectado com sucesso!`);
+
+    // Conectado
+```
+
+### Leitura
+As leituras são feitas através de Data Files, onde você pode especificar o tipo de dado que deseja ler. Devido
+as limitações do protocolo CIP via PCCC para MicroLogix, não é possível ler ou escrever múltiplos Data Files em uma única requisição, então cada 
+leitura e escrita é feita de forma individual.
+
+```javascript
+
+    // Ler o Data File tipo inteiro, identificado pelo número 7, e o elemento 33 dentro desse Data File
+    const lerN7_33 = await micoLogix.lerDataFile('N7:33');
+    if (lerN7_33.isSucesso) {
+        console.log(`Meu número N7:33 é ${lerN7_33.sucesso.valor}`);
+    } else {
+        console.error(`Erro ao ler N7:33: ${lerN7_33.erro.descricao}`);
+    }
+
+    // Ler o Data File tipo string, identificado pelo número 10, e o elemento 5 dentro desse Data File
+    const lerST_5 = await micoLogix.lerDataFile('ST10:5');
+    if (lerST_5.isSucesso) {
+        console.log(`Minha string ST10:5 é ${lerST_5.sucesso.valor}`);
+    } else {
+        console.error(`Erro ao ler ST10:5: ${lerST_5.erro.descricao}`);
+    }
+```
+
+Sempre é bom ficar atento ao objeto de isSucesso, se ela for false, a leitura falhou e você deve verificar o objeto de erro para mais informações. Possíveis
+erros podem ser: O Data File não existe, o tipo de dado não é suportado, o dispositivo não está conectado, etc.
+
+### Escrita
+Os métodos de escrita são quase idênticos aos de leitura, mas você deve informar o valor que deseja escrever no Data File
+```javascript
+
+    // Escrever o número 1234 no Data File tipo inteiro, identificado pelo número 7, e o elemento 55 dentro desse Data File
+    const escreveN7_55 = await micoLogix.writeDataFile('N7:55', 1234);
+    if (escreveN7_55.isSucesso) {
+        console.log(`Escrevi com sucesso o número 1234 em N7:55`);
+    } else {
+        console.error(`Erro ao escrever N7:55: ${escreveN7_55.erro.descricao}`);
+    }
+
+    // Escrever a string "Ola, mundo!"(yeah sem acento) no Data File tipo string, identificado pelo número 10, e o elemento 5 dentro desse Data File
+    const escreveST = await micoLogix.writeDataFile('ST10:5', 'Ola, mundo!');
+    if (escreveST.isSucesso) {
+        console.log(`Escrevi com sucesso a string "Ola, mundo!" em ST10:5`);
+    } else {
+        console.error(`Erro ao escrever ST10:5: ${escreveST.erro.descricao}`);
+    }
+```
+
+### Observação
+Para observar um Data File, você deve informar o nome do Data File e o callback que será chamado quando o valor do Data File mudar.
+```javascript
+
+    const statusObservaString = await microLogix.observarDataFile('ST10:5', {
+        // Toda vez que o valor desse Data File for alterado, esse callback é chamado
+        onDataFileAlterado: (valorAntigo, valorNovo) => {
+            console.log(`Valor antigo: ${valorAntigo}, novo valor: ${valorNovo}`);
+        },
+        // Toda vez que um erro de leitura do Data File ocorrer, esse callback é chamado
+        onErroLeitura: (erro) => {
+            console.error(`Erro ao ler Data File: ${erro}`);
+        }
+    });
+    
+        // Só não será possível observar se ocorrer algum erro de leitura no Data File solicitado
+    if (statusObservaString.isSucesso) {
+        console.log(`Observação de Data File ST10:5 iniciada com sucesso! ID do callback: ${statusObservaString.sucesso.idCallback}`);
+
+        setTimeout(() => {
+            // Para parar a observação, basta chamar o método pararObservacaoDataFile passando o ID do callback retornado
+            microLogix.pararObservadorUnicoDataFile('ST10:5', statusObservaString.sucesso.idUnicoCallback);
+
+
+            // Ou, se você quiser, parar todas as observações de um endereço Data File específico
+            microLogix.pararObservarDataFile('ST10:5');
+        }, 10000);
+    } else {
+        console.log(`Erro ao iniciar observação de Data File: ${statusObservaString.erro.descricao}`);
+    }
+
+```
+
 ## CompactLogixV2
 A classe CompactLogixV2 utiliza a classe CompactLogix como base para facilitar ainda mais a comunicação com o CompactLogix. 
 
