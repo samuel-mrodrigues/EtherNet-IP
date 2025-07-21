@@ -5,7 +5,10 @@ import { SingleServicePacketServiceBuilder } from "../../../EtherNetIP/Builder/L
 
 
 /**
- * Comunicação com o controlador CompactLogix da Rockwell
+ * Comunicação com o controlador CompactLogix da Rockwell.
+ ** Essa classe oferece os recursos básicos para: leitura, escrita e obtenção de tags.
+ ** Não há nenhum controle e otimização para leituras/escritas consecutivas de tags, muito menos observações de tags, justamente para permitir sua própria customização desejada.
+ * Se preferir ter mais controle sobre lógica de leituras/escritas/observações, utilize a classe `CompactLogixV2.js` diretamente.
  */
 export class CompactLogixRockwell {
 
@@ -2441,7 +2444,7 @@ export class CompactLogixRockwell {
                         bufferValor.writeBigUInt64LE(BigInt(numeroParaEscrita), 0);
                     }
                 }
-                
+
                 // Juntar os dois e retornar ele
                 const bufferDataTypeEscrita = Buffer.concat([bufferDataType, bufferValor]);
 

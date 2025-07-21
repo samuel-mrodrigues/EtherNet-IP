@@ -18,7 +18,13 @@ import { EmissorEvento } from "../../../Utils/EmissorEvento.js";
  */
 
 /**
- * Clase para interactuar con un controlador MicroLogix 1400 de Rockwell
+ * Classe para interagir com un controlador MicroLogix 1400 de Rockwell. As seguintes operações são suportadas:
+ ** Leitura de Data Files
+ ** Escrita de Data Files
+ ** Observações de Data Files
+ ** Leitura de informações do Data File de Status(isso pode ser acessado diretamente via leituras de Data File também)
+ *
+ * Para leituras/escritas, no momento foi testado apenas para valores para Data Files do tipo Integer(N) e String(ST).
  */
 export class MicroLogix1400 {
 

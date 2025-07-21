@@ -2,7 +2,9 @@ import { EmissorEvento } from "../../../Utils/EmissorEvento.js";
 import { CompactLogixRockwell } from "./CompactLogix.js";
 
 /**
- * Gerencia a conexão com um CompactLogix 
+ * Gerencia a conexão com um CompactLogix e permite ler/escrever tags, além de observar alterações de tags.
+ ** Essa classe é uma camada de abstração com melhorias no desempenho de leitura e escritas de tags, além de permitir observações de tags. (Coisa que a classe base não tem)
+ ** Se preferir ter mais controle sobre lógica de leituras/escritas/observações, utilize a classe `CompactLogix.js` diretamente.
  */
 export class CompactLogixV2 {
 
