@@ -20,6 +20,34 @@ A única tarefa que você precisa fazer para ambos é compor a sequência de com
 - ❌ CIP Connected Messages: Connected Messages utiliza uma conexão UDP para a troca de informações. Ao contrário do UCMM que utiliza o formato requisição-resposta, nesse modo o dispositivo remoto pode enviar informações sem o servidor ter solicitado, no caso isso acontece se você configurar que quer receber tal informação, por exemplo acompanhar em tempo real quando um endereço X mudar de valor.
 - ✅ CIP PCCC: O PCCC é usado para transportar os comandos do protocolo DF1 da Rockwell Automation para dispositivos que suportem o CIP PCCC. No mínimo oferece opções de ler e escrever em endereços, e dependendo do dispositivo pode suportar mais comandos diferentes.
 
+# Sumário
+
+- [Projeto](#projeto)
+- [Builders e Parsers](#builders-e-parsers)
+- [Serviços Suportados](#serviços-suportados)
+- [Sumário](#sumário)
+- [Como usar](#como-usar)
+    - [EtherNet/IP](#ethernetip)
+        - [Estabelecendo uma conexão com um dispositivo EtherNet/IP](#estabelecendo-uma-conexão-com-um-dispositivo-ethernetip)
+        - [Enviando um pacote ENIP de ListIdentity](#enviando-um-pacote-enip-de-listidentity)
+    - [Implementação do CompactLogix usando o EtherNet/IP](#implementação-do-compactlogix-usando-o-ethernetip)
+        - [Estabelecendo conexão com um CompactLogix](#estabelecendo-conexão-com-um-compactlogix)
+        - [Leitura de Tags](#leitura-de-tags)
+        - [Escrita de Tags](#escrita-de-tags)
+        - [Listar Tags](#listar-tags)
+    - [CompactLogixV2](#compactlogixv2)
+        - [Conectar](#conectar-1)
+        - [Ler Tags](#ler-tags)
+        - [Escrever Tags](#escrever-tags)
+        - [Observar Tags](#observar-tags)
+        - [Parar Observação de Tags](#parar-observação-de-tags)
+    - [MicroLogix 1400](#micrologix-1400)
+        - [Conectar](#conectar)
+        - [Leitura](#leitura)
+        - [Escrita](#escrita)
+        - [Observação](#observação)
+- [Recursos Utilizados](#recursos-utilizados)
+
 # Como usar
 ## EtherNet/IP
 A classe do EtherNet/IP utiliza o Builder(Monta o pacote de Buffer que vai ser enviado ao dispositivo) e o Parser(Recebe o Buffer e organiza a informação sem muita dor de cabeça). 
