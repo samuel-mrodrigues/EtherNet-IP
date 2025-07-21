@@ -1,25 +1,3 @@
-# Projeto
-Esse projeto permite estabelecer conexões via protocolo EtherNet/IP(EtherNet Industrial Protocol) para troca de informações com dispositivos que suportem o protocolo CIP. De inicio, ele fornece uma classe EtherNet/IP que permite abrir uma conexão TCP com o dispositivo remoto, e através dela é possível customizar a informação que vão ser enviadas ao dispositivo.
-
-Outras bibliotecas de EtherNet/IP até fazem a mesma função porém de forma basica e superficial, eu queria algo que tivesse mais controle sobre as informações retornadas e deixasse facíl de interagir com os dispositivos, então decidi criar um do zero.
-
-Não tenho certeza ainda pois só cheguei a implementar um tipo de comunicação até o momento com um controlador CompactLogix da RockWell, mas pelas minhas pesquisas, de forma geral todos os dispositivos que suportam o protocolo CIP possuem até um certo nivel de padrão onde todos devem seguir, e depois disso vem os detalhes especificos que mudam dependendo da fabricante do CLP. Por exemplo, a forma de escrever um valor em um controlador X é diferente no controlador Y. Utilizando a classe EtherNet/IP contida no projeto, é possível customizar livremente todas as informações de um comando CIP para que ele fique compatível com o dispositivo que você deseja se comunicar.
-
-Na pasta Controladores tem uma classe pronta que usa o EtherNet/IP para se comunicar com um CompactLogix. Assim como eu fiz dessa forma, é possível criar outras classes para outros tipos de dispositivos usando como base o EtherNet/IP, você só precisa saber como montar o payload corretamente.
-
-# Builders e Parsers
-A classe EtherNet/IP utiliza os Builders/Parsers para auxiliar no gerenciamento dos pacotes ENIPs. 
-
-- Os Builders facilitam a montagem de todos os tipos de comandos disponiveis, sem necessidade de ficar informando onde cada byte deve ficar no Buffer(alguns Builders permitem configurar exatamente os bytes caso necessário).
-- Os Parsers auxiliam na leitura dos Buffers recebidos que sejam um pacote EtherNet/IP.
-
-A única tarefa que você precisa fazer para ambos é compor a sequência de comandos.
-
-# Serviços Suportados
-- ✅ CIP Connection Manager (Unconnected Messages): O Connection Manager é usado pra enviar mensagens do tipo "UCMM". É uma conexão TCP que fica aberta e funciona no estilo requisição-resposta, onde o dispositivo remoto só devolve alguma informação se você solicitar ela.
-- ❌ CIP Connected Messages: Connected Messages utiliza uma conexão UDP para a troca de informações. Ao contrário do UCMM que utiliza o formato requisição-resposta, nesse modo o dispositivo remoto pode enviar informações sem o servidor ter solicitado, no caso isso acontece se você configurar que quer receber tal informação, por exemplo acompanhar em tempo real quando um endereço X mudar de valor.
-- ✅ CIP PCCC: O PCCC é usado para transportar os comandos do protocolo DF1 da Rockwell Automation para dispositivos que suportem o CIP PCCC. No mínimo oferece opções de ler e escrever em endereços, e dependendo do dispositivo pode suportar mais comandos diferentes.
-
 # Sumário
 
 - [Projeto](#projeto)
@@ -47,6 +25,28 @@ A única tarefa que você precisa fazer para ambos é compor a sequência de com
         - [Escrita](#escrita)
         - [Observação](#observação)
 - [Recursos Utilizados](#recursos-utilizados)
+
+# Projeto
+Esse projeto permite estabelecer conexões via protocolo EtherNet/IP(EtherNet Industrial Protocol) para troca de informações com dispositivos que suportem o protocolo CIP. De inicio, ele fornece uma classe EtherNet/IP que permite abrir uma conexão TCP com o dispositivo remoto, e através dela é possível customizar a informação que vão ser enviadas ao dispositivo.
+
+Outras bibliotecas de EtherNet/IP até fazem a mesma função porém de forma basica e superficial, eu queria algo que tivesse mais controle sobre as informações retornadas e deixasse facíl de interagir com os dispositivos, então decidi criar um do zero.
+
+Não tenho certeza ainda pois só cheguei a implementar um tipo de comunicação até o momento com um controlador CompactLogix da RockWell, mas pelas minhas pesquisas, de forma geral todos os dispositivos que suportam o protocolo CIP possuem até um certo nivel de padrão onde todos devem seguir, e depois disso vem os detalhes especificos que mudam dependendo da fabricante do CLP. Por exemplo, a forma de escrever um valor em um controlador X é diferente no controlador Y. Utilizando a classe EtherNet/IP contida no projeto, é possível customizar livremente todas as informações de um comando CIP para que ele fique compatível com o dispositivo que você deseja se comunicar.
+
+Na pasta Controladores tem uma classe pronta que usa o EtherNet/IP para se comunicar com um CompactLogix. Assim como eu fiz dessa forma, é possível criar outras classes para outros tipos de dispositivos usando como base o EtherNet/IP, você só precisa saber como montar o payload corretamente.
+
+# Builders e Parsers
+A classe EtherNet/IP utiliza os Builders/Parsers para auxiliar no gerenciamento dos pacotes ENIPs. 
+
+- Os Builders facilitam a montagem de todos os tipos de comandos disponiveis, sem necessidade de ficar informando onde cada byte deve ficar no Buffer(alguns Builders permitem configurar exatamente os bytes caso necessário).
+- Os Parsers auxiliam na leitura dos Buffers recebidos que sejam um pacote EtherNet/IP.
+
+A única tarefa que você precisa fazer para ambos é compor a sequência de comandos.
+
+# Serviços Suportados
+- ✅ CIP Connection Manager (Unconnected Messages): O Connection Manager é usado pra enviar mensagens do tipo "UCMM". É uma conexão TCP que fica aberta e funciona no estilo requisição-resposta, onde o dispositivo remoto só devolve alguma informação se você solicitar ela.
+- ❌ CIP Connected Messages: Connected Messages utiliza uma conexão UDP para a troca de informações. Ao contrário do UCMM que utiliza o formato requisição-resposta, nesse modo o dispositivo remoto pode enviar informações sem o servidor ter solicitado, no caso isso acontece se você configurar que quer receber tal informação, por exemplo acompanhar em tempo real quando um endereço X mudar de valor.
+- ✅ CIP PCCC: O PCCC é usado para transportar os comandos do protocolo DF1 da Rockwell Automation para dispositivos que suportem o CIP PCCC. No mínimo oferece opções de ler e escrever em endereços, e dependendo do dispositivo pode suportar mais comandos diferentes.
 
 # Como usar
 ## EtherNet/IP
