@@ -852,9 +852,9 @@ export class MicroLogix1400 {
 
             // Não deu pra enviar, devolver o erro ocorrido
             if (!respostaENIP.enipEnviar.isEnviou) {
-                retornoControllerMode.erro.descricao = `${respostaENIP.enipEnviar.erro.descricao}`;
+                retornoRead.erro.descricao = `${respostaENIP.enipEnviar.erro.descricao}`;
             } else if (respostaENIP.enipReceber.isRecebeu) {
-                retornoControllerMode.erro.descricao = `${respostaENIP.enipReceber.erro.descricao}`;
+                retornoRead.erro.descricao = `${respostaENIP.enipReceber.erro.descricao}`;
             }
 
             return retornoRead;
