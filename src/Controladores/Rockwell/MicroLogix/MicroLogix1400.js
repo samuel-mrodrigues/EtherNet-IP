@@ -1109,7 +1109,7 @@ export class MicroLogix1400 {
             /**
              * Se foi possível iniciar a observação do Data File
              */
-            isSucesso: true,
+            isSucesso: false,
             /**
              * Se foi possível iniciar a observação do Data File, contém as informações do observador criado
              */
