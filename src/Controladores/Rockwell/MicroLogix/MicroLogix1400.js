@@ -1264,7 +1264,7 @@ export class MicroLogix1400 {
             return;
         }
 
-        this.log(`Dando trigger na leitura de ${this.#estado.dataFilesObservados.observados.length} Data Files...`);
+        this.log(`Executando trigger na leitura de ${this.#estado.dataFilesObservados.observados.length} Data Files...`);
 
         this.#estado.dataFilesObservados.observados.forEach(async (observador) => {
 
