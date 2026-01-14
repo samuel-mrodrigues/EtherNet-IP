@@ -9,8 +9,14 @@
     "cip",
     "cip pcccc",
     "allen-bradley CIP",
+    "allen-bradley",
     "rockwell CIP",
-    "ethernet/ip"
+    "rockwell",
+    "ethernet/ip",
+    "ethernet-ip",
+    "micrologix",
+    "compactlogix",
+    "controllogix"
   ],
   "author": "Samuel Machado Rodrigues",
   "repository": {
