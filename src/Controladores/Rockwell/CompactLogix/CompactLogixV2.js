@@ -276,6 +276,13 @@ export class CompactLogixV2 {
      * @param {String} construtorOpcoes.conexao.ip - Endereço IP do CompactLogix
      * @param {Number} construtorOpcoes.conexao.porta - Porta de comunicação com o CompactLogix
      * @param {Boolean} construtorOpcoes.isAutoReconectar - Se em caso de perca de conexão, será tentado reconectar automaticamente
+     * @param {Object} construtorOpcoes.configuracoes - Configurações adicionais para o comportamento da biblioteca
+     * @param {Object} construtorOpcoes.configuracoes.leitura - Configurações do comportamento de leitura de tags
+     * @param {Number} construtorOpcoes.configuracoes.leitura.tempoMinimoEntreLeituras - Seta o intervalo de tempo mínimo entre as leituras de tags pendentes. Se uma leitura for solicitada antes do tempo mínimo, ela será agendada para ser executada assim que o tempo mínimo for atingido.
+     * @param {Object} construtorOpcoes.configuracoes.escrita - Configurações do comportamento de escrita de tags
+     * @param {Number} construtorOpcoes.configuracoes.escrita.tempoMinimoEntreEscritas - Seta o intervalo de tempo mínimo entre as escritas de tags pendentes. Se uma escrita for solicitada antes do tempo mínimo, ela será agendada para ser executada assim que o tempo mínimo for atingido.
+     * @param {Object} construtorOpcoes.configuracoes.observacoes - Configurações do comportamento de observação de tags
+     * @param {Number} construtorOpcoes.configuracoes.observacoes.tempoEntreLeituras - Seta o intervalo de tempo mínimo entre as leituras para observação de tags. Se uma leitura for solicitada antes do tempo mínimo, ela será agendada para ser executada assim que o tempo mínimo for atingido.
      */
     constructor(construtorOpcoes) {
         if (construtorOpcoes == undefined) throw new Error('As propriedades do construtor precisam ser informadas.');
@@ -287,6 +294,26 @@ export class CompactLogixV2 {
 
         // Se informado a porta opcional, eu utilizo ela, senão eu utilizo a padrão 44818
         if (construtorOpcoes.conexao.porta != undefined) this.#configuracoes.porta = construtorOpcoes.conexao.porta;
+
+        if (construtorOpcoes.configuracoes != undefined) {
+            if (construtorOpcoes.configuracoes.leitura != undefined) {
+                if (construtorOpcoes.configuracoes.leitura.tempoMinimoEntreLeituras != undefined) {
+                    this.setLeituraMs(construtorOpcoes.configuracoes.leitura.tempoMinimoEntreLeituras);
+                }
+            }
+
+            if (construtorOpcoes.configuracoes.escrita != undefined) {
+                if (construtorOpcoes.configuracoes.escrita.tempoMinimoEntreEscritas != undefined) {
+                    this.setEscritaMs(construtorOpcoes.configuracoes.escrita.tempoMinimoEntreEscritas);
+                }
+            }
+
+            if (construtorOpcoes.configuracoes.observacoes != undefined) {
+                if (construtorOpcoes.configuracoes.observacoes.tempoEntreLeituras != undefined) {
+                    this.setObservacaoMs(construtorOpcoes.configuracoes.observacoes.tempoEntreLeituras);
+                }
+            }
+        }
 
         this.#configuracoes.ip = construtorOpcoes.conexao.ip;
 
@@ -302,6 +329,38 @@ export class CompactLogixV2 {
         this.#estado.controlador.onLog((msgLog) => {
             this.log(msgLog);
         })
+    }
+
+    /**
+     * Seta o intervalo de tempo mínimo entre as leituras de tags pendentes. Se uma leitura for solicitada antes do tempo mínimo, ela será agendada para ser executada assim que o tempo mínimo for atingido.
+     * @param {Number} ms - Minimo 0, tempo em millisegundos 
+     */
+    setLeituraMs(ms) {
+        if (ms < 0) {
+            throw new Error('O tempo mínimo entre leituras não pode ser negativo.');
+        }
+
+        this.#configuracoes.leitura.tempoMinimoEntreLeituras = ms;
+    }
+
+    /**
+     * Seta o intervalo de tempo mínimo entre as escritas de tags pendentes. Se uma escrita for solicitada antes do tempo mínimo, ela será agendada para ser executada assim que o tempo mínimo for atingido.
+     * @param {Number} ms - Minimo 0, tempo em millisegundos
+     */
+    setEscritaMs(ms) {
+        if (ms < 0) {
+            throw new Error('O tempo mínimo entre escritas não pode ser negativo.');
+        }
+
+        this.#configuracoes.escrita.tempoMinimoEntreEscritas = ms;
+    }
+
+    setObservacaoMs(ms) {
+        if (ms < 0) {
+            throw new Error('O tempo entre leituras para observação de tags não pode ser negativo.');
+        }
+
+        this.#configuracoes.observacoes.tempoEntreLeituras = ms;
     }
 
     /**
