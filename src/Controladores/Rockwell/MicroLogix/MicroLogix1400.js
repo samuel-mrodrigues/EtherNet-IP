@@ -730,7 +730,7 @@ export class MicroLogix1400 {
 
         const detalhesDataFileSolicitado = validarDatafileDeString(identificacaoFile);
         if (!detalhesDataFileSolicitado.isValido) {
-            retornoRead.erro.descricao = detalhesDataFileSolicitado.descricao;
+            retornoRead.erro.descricao = detalhesDataFileSolicitado.erro.descricao;
             return retornoRead;
         }
 
